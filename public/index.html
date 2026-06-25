@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>薛家好好玩</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LINE 旅行日記</p>
+          <h1>薛家好好玩</h1>
+        </div>
+        <div class="top-actions">
+          <span id="userBadge" class="user-badge">載入中</span>
+          <button id="inviteButton" class="ghost-button" type="button" disabled>↗ 邀請</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar" aria-label="旅行本">
+          <form id="createTripForm" class="create-form">
+            <label>
+              旅行本
+              <input id="tripTitleInput" name="title" autocomplete="off" placeholder="宜蘭" required />
+            </label>
+            <label>
+              地區
+              <input id="tripAreaInput" name="area" autocomplete="off" placeholder="宜蘭、礁溪、羅東" />
+            </label>
+            <button class="primary-button" type="submit">＋ 新增</button>
+          </form>
+          <nav id="tripList" class="trip-list"></nav>
+        </aside>
+
+        <section class="workspace" aria-live="polite">
+          <div id="emptyState" class="empty-state">
+            <h2>新增一本旅行日記</h2>
+            <p>例如「宜蘭」，再把行程、訂位、購票、價格和大家的願望收進同一本。</p>
+          </div>
+
+          <div id="tripView" class="trip-view" hidden>
+            <section class="trip-head">
+              <form id="tripSettingsForm" class="trip-settings">
+                <label>
+                  名稱
+                  <input id="currentTripTitle" name="title" required />
+                </label>
+                <label>
+                  地區
+                  <input id="currentTripArea" name="area" required />
+                </label>
+                <button class="compact-button" type="submit">儲存</button>
+              </form>
+              <div id="tripStats" class="stats"></div>
+            </section>
+
+            <div class="tabs" role="tablist" aria-label="旅行日記分頁">
+              <button class="tab is-active" type="button" data-tab="itinerary">行程</button>
+              <button class="tab" type="button" data-tab="wishes">許願</button>
+              <button class="tab" type="button" data-tab="recommendations">附近熱門</button>
+              <button class="tab" type="button" data-tab="members">同伴</button>
+            </div>
+
+            <section id="itineraryPanel" class="panel" data-panel="itinerary"></section>
+            <section id="wishesPanel" class="panel" data-panel="wishes" hidden></section>
+            <section id="recommendationsPanel" class="panel" data-panel="recommendations" hidden></section>
+            <section id="membersPanel" class="panel" data-panel="members" hidden></section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>
