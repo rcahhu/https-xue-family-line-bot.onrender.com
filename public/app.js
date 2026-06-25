@@ -97,7 +97,7 @@ function bindEvents() {
     await refreshCurrentTrip();
     await loadTrips();
     await loadRecommendations(true);
-    toast("已儲存");
+    toast("已儲存旅行日記");
   });
 
   els.tabs.addEventListener("click", (event) => {
@@ -110,20 +110,40 @@ function bindEvents() {
   els.inviteButton.addEventListener("click", () => inviteCurrentTrip().catch(showError));
 
   els.itineraryPanel.addEventListener("submit", async (event) => {
-    if (!event.target.matches(".item-form")) return;
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const item = Object.fromEntries(formData.entries());
-    await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
-      method: "POST",
-      body: { actor: state.user, item }
-    });
-    event.target.reset();
-    await refreshCurrentTrip();
-    toast("已加入行程");
+    if (event.target.matches(".item-form")) {
+      event.preventDefault();
+      const item = formObject(event.target);
+      await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
+        method: "POST",
+        body: { actor: state.user, item }
+      });
+      event.target.reset();
+      syncTypeFields(event.target);
+      await refreshCurrentTrip();
+      toast("已加入行程");
+      return;
+    }
+
+    if (event.target.matches(".item-edit-form")) {
+      event.preventDefault();
+      const itemId = event.target.dataset.itemId;
+      const patch = formObject(event.target);
+      await api(`/api/trips/${state.currentTrip.id}/itinerary/${itemId}`, {
+        method: "PATCH",
+        body: { actor: state.user, patch }
+      });
+      await refreshCurrentTrip();
+      toast("已更新行程");
+    }
   });
 
   els.itineraryPanel.addEventListener("change", async (event) => {
+    const typeSelect = event.target.closest(".item-type-select");
+    if (typeSelect) {
+      syncTypeFields(typeSelect.form);
+      return;
+    }
+
     const target = event.target.closest("[data-item-field]");
     if (!target) return;
     const itemId = target.dataset.itemId;
@@ -150,8 +170,7 @@ function bindEvents() {
   els.wishesPanel.addEventListener("submit", async (event) => {
     if (!event.target.matches(".wish-form")) return;
     event.preventDefault();
-    const formData = new FormData(event.target);
-    const wish = Object.fromEntries(formData.entries());
+    const wish = formObject(event.target);
     await api(`/api/trips/${state.currentTrip.id}/wishes`, {
       method: "POST",
       body: { actor: state.user, wish }
@@ -199,6 +218,7 @@ function bindEvents() {
       body: {
         actor: state.user,
         item: {
+          type: "activity",
           title: button.dataset.name,
           place: button.dataset.area,
           note: button.dataset.note,
@@ -354,7 +374,7 @@ function renderUser() {
 
 function renderTripList() {
   if (!state.trips.length) {
-    els.tripList.innerHTML = `<p class="muted">還沒有旅行本</p>`;
+    els.tripList.innerHTML = `<p class="muted">還沒有旅行日記</p>`;
     return;
   }
   els.tripList.innerHTML = state.trips
@@ -362,7 +382,7 @@ function renderTripList() {
       (trip) => `
         <button class="trip-link ${state.currentTrip?.id === trip.id ? "is-active" : ""}" type="button" data-trip-id="${escapeAttr(trip.id)}">
           <strong>${escapeHtml(trip.title)}</strong>
-          <span>${escapeHtml(trip.area)} · ${trip.itinerary.length} 個行程 · ${trip.wishes.length} 個願望</span>
+          <span>${escapeHtml(trip.area)} · ${trip.itinerary.length} 個行程 · ${trip.members.length} 位同伴</span>
         </button>
       `
     )
@@ -372,13 +392,17 @@ function renderTripList() {
 function renderStats() {
   const trip = state.currentTrip;
   const budget = trip.itinerary.reduce((sum, item) => sum + Number(item.price || 0), 0);
-  const ticketTodo = trip.itinerary.filter((item) => item.ticketStatus === "needed").length;
-  const reservationTodo = trip.itinerary.filter((item) => item.reservationStatus === "needed").length;
+  const transportCount = trip.itinerary.filter((item) => item.type === "transport").length;
+  const lodgingCount = trip.itinerary.filter((item) => item.type === "lodging").length;
+  const memberNames = trip.members.map((member) => member.displayName).join("、") || "尚無同伴";
   els.tripStats.innerHTML = [
     stat("預估花費", money(budget)),
-    stat("待購票", `${ticketTodo} 項`),
-    stat("待訂位", `${reservationTodo} 項`),
-    stat("同伴", `${trip.members.length} 人`)
+    stat("行程規劃", `${trip.itinerary.length} 筆`),
+    stat("搭車", `${transportCount} 筆`),
+    stat("住宿", `${lodgingCount} 筆`),
+    stat("同伴", `${trip.members.length} 人`),
+    stat("同伴名單", memberNames),
+    stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
 }
 
@@ -386,80 +410,214 @@ function renderItinerary() {
   const trip = state.currentTrip;
   const rows = trip.itinerary.length
     ? trip.itinerary.map((item) => itineraryRow(item)).join("")
-    : `<p class="muted">還沒有行程</p>`;
+    : `<p class="muted">還沒有行程規劃</p>`;
 
   els.itineraryPanel.innerHTML = `
     <form class="item-form">
-      <label>
-        日期
-        <input type="date" name="date" />
-      </label>
-      <label>
-        時間
-        <input type="time" name="time" />
-      </label>
-      <label>
-        行程
-        <input name="title" autocomplete="off" placeholder="幾米廣場" required />
-      </label>
-      <label>
-        地點
-        <input name="place" autocomplete="off" placeholder="宜蘭市" />
-      </label>
-      <label>
-        是否購票
-        <select name="ticketStatus">
-          ${statusOptions("ticket", "none")}
-        </select>
-      </label>
-      <label>
-        是否訂位
-        <select name="reservationStatus">
-          ${statusOptions("reservation", "none")}
-        </select>
-      </label>
-      <label>
-        價格
-        <input type="number" name="price" min="0" step="1" value="0" />
-      </label>
-      <label>
-        幣別
-        <input name="currency" value="TWD" />
-      </label>
-      <label class="full">
-        備註
-        <textarea name="note" placeholder="票券、訂位時間、集合點"></textarea>
-      </label>
+      ${itineraryFields()}
       <button class="primary-button full" type="submit">＋ 加入行程</button>
     </form>
     <div class="row-list">${rows}</div>
+  `;
+  els.itineraryPanel.querySelectorAll(".item-form, .item-edit-form").forEach(syncTypeFields);
+}
+
+function itineraryFields(item = {}) {
+  return `
+    <label>
+      類型
+      <select class="item-type-select" name="type">
+        ${selectOptions(
+          {
+            activity: "一般行程",
+            transport: "搭車",
+            lodging: "住宿"
+          },
+          item.type || "activity"
+        )}
+      </select>
+    </label>
+    <label>
+      日期
+      <input type="date" name="date" value="${escapeAttr(item.date || "")}" />
+    </label>
+    <label>
+      時間
+      <input type="time" name="time" value="${escapeAttr(item.time || "")}" />
+    </label>
+    <label>
+      結束時間
+      <input type="time" name="endTime" value="${escapeAttr(item.endTime || "")}" />
+    </label>
+    <label class="wide">
+      行程名稱
+      <input name="title" autocomplete="off" placeholder="羅東夜市、台鐵、住宿" value="${escapeAttr(item.title || "")}" required />
+    </label>
+    <label class="wide">
+      地點
+      <input name="place" autocomplete="off" placeholder="宜蘭、礁溪、羅東" value="${escapeAttr(item.place || "")}" />
+    </label>
+    <section class="type-fields type-transport full" data-type-fields="transport">
+      <h3>搭車資訊</h3>
+      <div class="field-grid">
+        <label>
+          交通工具
+          <input name="transportMode" placeholder="台鐵、高鐵、客運、租車" value="${escapeAttr(item.transportMode || "")}" />
+        </label>
+        <label>
+          車種/業者
+          <input name="transportName" placeholder="自強號、葛瑪蘭客運" value="${escapeAttr(item.transportName || "")}" />
+        </label>
+        <label>
+          車次/班次
+          <input name="transportNumber" placeholder="123、1915" value="${escapeAttr(item.transportNumber || "")}" />
+        </label>
+        <label>
+          哪裡到哪裡
+          <input name="fromPlace" placeholder="台北車站" value="${escapeAttr(item.fromPlace || "")}" />
+        </label>
+        <label>
+          抵達地
+          <input name="toPlace" placeholder="宜蘭車站" value="${escapeAttr(item.toPlace || "")}" />
+        </label>
+        <label>
+          在哪裡坐
+          <input name="boardingPlace" placeholder="台北轉運站 4 號月台" value="${escapeAttr(item.boardingPlace || "")}" />
+        </label>
+        <label>
+          時長
+          <input name="duration" placeholder="1 小時 20 分" value="${escapeAttr(item.duration || "")}" />
+        </label>
+      </div>
+    </section>
+    <section class="type-fields type-lodging full" data-type-fields="lodging">
+      <h3>住宿資訊</h3>
+      <div class="field-grid">
+        <label>
+          住哪
+          <input name="lodgingName" placeholder="飯店 / 民宿名稱" value="${escapeAttr(item.lodgingName || "")}" />
+        </label>
+        <label>
+          地址
+          <input name="lodgingAddress" placeholder="住宿地址" value="${escapeAttr(item.lodgingAddress || "")}" />
+        </label>
+        <label>
+          入住日
+          <input type="date" name="checkInDate" value="${escapeAttr(item.checkInDate || "")}" />
+        </label>
+        <label>
+          退房日
+          <input type="date" name="checkOutDate" value="${escapeAttr(item.checkOutDate || "")}" />
+        </label>
+        <label>
+          早餐
+          <select name="breakfast">
+            ${selectOptions(
+              { unknown: "未確認", included: "有早餐", not_included: "沒有早餐" },
+              item.breakfast || "unknown"
+            )}
+          </select>
+        </label>
+        <label>
+          訂房編號
+          <input name="confirmationNumber" placeholder="訂房平台或確認碼" value="${escapeAttr(item.confirmationNumber || "")}" />
+        </label>
+      </div>
+    </section>
+    <label>
+      是否購票
+      <select name="ticketStatus">
+        ${statusOptions("ticket", item.ticketStatus || "none")}
+      </select>
+    </label>
+    <label>
+      是否訂位
+      <select name="reservationStatus">
+        ${statusOptions("reservation", item.reservationStatus || "none")}
+      </select>
+    </label>
+    <label>
+      價格
+      <input type="number" name="price" min="0" step="1" value="${Number(item.price || 0)}" />
+    </label>
+    <label>
+      幣別
+      <input name="currency" value="${escapeAttr(item.currency || "TWD")}" />
+    </label>
+    <label class="full">
+      備註
+      <textarea name="note" placeholder="票券、訂位時間、集合點">${escapeHtml(item.note || "")}</textarea>
+    </label>
   `;
 }
 
 function itineraryRow(item) {
   return `
-    <article class="data-row">
+    <article class="data-row itinerary-row">
       <div class="row-title">
-        <strong>${escapeHtml(item.title)}</strong>
+        <div class="title-line">
+          <span class="type-badge">${itineraryTypeLabel(item.type)}</span>
+          <strong>${escapeHtml(item.title)}</strong>
+        </div>
         <small>${escapeHtml(formatWhen(item))}${item.place ? ` · ${escapeHtml(item.place)}` : ""}</small>
-        ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
+        ${itineraryDetail(item)}
+        ${item.note ? `<small>備註：${escapeHtml(item.note)}</small>` : ""}
+        <small class="audit-line">${auditLine(item)}</small>
       </div>
-      <span class="pill">${money(item.price || 0, item.currency)}</span>
-      <select data-item-id="${escapeAttr(item.id)}" data-item-field="ticketStatus" aria-label="是否購票">
-        ${statusOptions("ticket", item.ticketStatus)}
-      </select>
-      <select data-item-id="${escapeAttr(item.id)}" data-item-field="reservationStatus" aria-label="是否訂位">
-        ${statusOptions("reservation", item.reservationStatus)}
-      </select>
-      <input type="number" min="0" step="1" value="${Number(item.price || 0)}" data-item-id="${escapeAttr(item.id)}" data-item-field="price" aria-label="價格" />
-      <button class="danger-button" type="button" data-delete-item="${escapeAttr(item.id)}">刪除</button>
+      <div class="row-controls">
+        <span class="pill">${money(item.price || 0, item.currency)}</span>
+        <select data-item-id="${escapeAttr(item.id)}" data-item-field="ticketStatus" aria-label="是否購票">
+          ${statusOptions("ticket", item.ticketStatus)}
+        </select>
+        <select data-item-id="${escapeAttr(item.id)}" data-item-field="reservationStatus" aria-label="是否訂位">
+          ${statusOptions("reservation", item.reservationStatus)}
+        </select>
+        <input type="number" min="0" step="1" value="${Number(item.price || 0)}" data-item-id="${escapeAttr(item.id)}" data-item-field="price" aria-label="價格" />
+        <button class="danger-button" type="button" data-delete-item="${escapeAttr(item.id)}">刪除</button>
+      </div>
+      <details class="edit-details full">
+        <summary>修改這筆資料</summary>
+        <form class="item-edit-form" data-item-id="${escapeAttr(item.id)}">
+          ${itineraryFields(item)}
+          <button class="primary-button full" type="submit">儲存修改</button>
+        </form>
+      </details>
     </article>
   `;
 }
 
+function itineraryDetail(item) {
+  if (item.type === "transport") {
+    const details = [
+      joinParts([item.transportMode, item.transportName, item.transportNumber], " "),
+      joinParts([item.fromPlace, item.toPlace], " → "),
+      item.boardingPlace ? `在哪坐：${item.boardingPlace}` : "",
+      item.duration ? `時長：${item.duration}` : ""
+    ].filter(Boolean);
+    return details.length ? `<small>搭車：${escapeHtml(details.join(" · "))}</small>` : "";
+  }
+
+  if (item.type === "lodging") {
+    const details = [
+      item.lodgingName ? `住哪：${item.lodgingName}` : "",
+      item.lodgingAddress ? `地址：${item.lodgingAddress}` : "",
+      item.checkInDate || item.checkOutDate
+        ? `入住/退房：${item.checkInDate || "未填"} → ${item.checkOutDate || "未填"}`
+        : "",
+      `早餐：${breakfastLabel(item.breakfast)}`,
+      item.confirmationNumber ? `訂房編號：${item.confirmationNumber}` : ""
+    ].filter(Boolean);
+    return details.length ? `<small>住宿：${escapeHtml(details.join(" · "))}</small>` : "";
+  }
+
+  return "";
+}
+
 function renderWishes() {
   const trip = state.currentTrip;
-  const rows = trip.wishes.length ? trip.wishes.map((wish) => wishRow(wish)).join("") : `<p class="muted">還沒有願望</p>`;
+  const rows = trip.wishes.length
+    ? trip.wishes.map((wish) => wishRow(wish)).join("")
+    : `<p class="muted">還沒有願望</p>`;
   els.wishesPanel.innerHTML = `
     <form class="wish-form">
       <label>
@@ -486,7 +644,8 @@ function wishRow(wish) {
     <article class="data-row wish-row">
       <div class="row-title">
         <strong>${escapeHtml(wish.text)}</strong>
-        <small>${wishTypeLabel(wish.type)} · ${escapeHtml(wish.author?.displayName || "旅伴")}</small>
+        <small>${wishTypeLabel(wish.type)} · ${escapeHtml(actorName(wish.author))}</small>
+        <small class="audit-line">${auditLine(wish)}</small>
       </div>
       <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="type" aria-label="願望類型">
         ${wishTypeOptions(wish.type)}
@@ -548,12 +707,19 @@ function recommendationItem(item) {
 function renderMembers() {
   const trip = state.currentTrip;
   els.membersPanel.innerHTML = `
+    <div class="member-summary">
+      <strong>同伴 ${trip.members.length} 人</strong>
+      <span>${escapeHtml(trip.members.map((member) => member.displayName).join("、"))}</span>
+    </div>
     <div class="member-list">
       ${trip.members
         .map(
           (member) => `
             <article class="member-row">
-              <strong>${escapeHtml(member.displayName)}</strong>
+              <div>
+                <strong>${escapeHtml(member.displayName)}</strong>
+                <small>加入：${formatDateTime(member.joinedAt)}</small>
+              </div>
               <span class="muted">${member.role === "owner" ? "建立者" : "同伴"}</span>
             </article>
           `
@@ -623,6 +789,18 @@ async function api(path, options = {}) {
   return data;
 }
 
+function formObject(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+function syncTypeFields(form) {
+  if (!form) return;
+  const type = form.querySelector(".item-type-select")?.value || "activity";
+  form.querySelectorAll("[data-type-fields]").forEach((section) => {
+    section.hidden = section.dataset.typeFields !== type;
+  });
+}
+
 function stat(label, value) {
   return `<div class="stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
@@ -632,41 +810,71 @@ function statusOptions(kind, selected) {
     kind === "ticket"
       ? { none: "免購票", needed: "待購票", done: "已購票" }
       : { none: "免訂位", needed: "待訂位", done: "已訂位" };
+  return selectOptions(labels, selected);
+}
+
+function selectOptions(labels, selected) {
   return Object.entries(labels)
     .map(
       ([value, label]) =>
-        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
+        `<option value="${escapeAttr(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(label)}</option>`
     )
     .join("");
 }
 
 function wishTypeOptions(selected) {
   const labels = { food: "想吃", spot: "想去", activity: "想玩", other: "其他" };
-  return Object.entries(labels)
-    .map(
-      ([value, label]) =>
-        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
-    )
-    .join("");
+  return selectOptions(labels, selected);
 }
 
 function wishStatusOptions(selected) {
   const labels = { open: "許願中", planned: "已排入", done: "已完成" };
-  return Object.entries(labels)
-    .map(
-      ([value, label]) =>
-        `<option value="${value}" ${value === selected ? "selected" : ""}>${label}</option>`
-    )
-    .join("");
+  return selectOptions(labels, selected);
 }
 
 function wishTypeLabel(type) {
   return { food: "想吃", spot: "想去", activity: "想玩", other: "其他" }[type] || "其他";
 }
 
+function itineraryTypeLabel(type) {
+  return { activity: "行程", transport: "搭車", lodging: "住宿" }[type] || "行程";
+}
+
+function breakfastLabel(value) {
+  return { unknown: "未確認", included: "有早餐", not_included: "沒有早餐" }[value] || "未確認";
+}
+
 function formatWhen(item) {
-  const parts = [item.date, item.time].filter(Boolean);
-  return parts.length ? parts.join(" ") : "未排時間";
+  if (item.type === "lodging" && (item.checkInDate || item.checkOutDate)) {
+    return `${item.checkInDate || "未填入住日"} → ${item.checkOutDate || "未填退房日"}`;
+  }
+  const start = [item.date, item.time].filter(Boolean).join(" ");
+  const end = item.endTime ? ` → ${item.endTime}` : "";
+  return start ? `${start}${end}` : "未排時間";
+}
+
+function formatDateTime(value) {
+  if (!value) return "未記錄";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未記錄";
+  return date.toLocaleString("zh-Hant-TW", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function auditLine(entry) {
+  return `新增：${actorName(entry.createdBy)} ${formatDateTime(entry.createdAt)}｜最後修改：${actorName(entry.updatedBy)} ${formatDateTime(entry.updatedAt)}`;
+}
+
+function actorName(actor) {
+  return actor?.displayName || actor?.name || "旅伴";
+}
+
+function joinParts(parts, separator) {
+  return parts.filter(Boolean).join(separator);
 }
 
 function money(value, currency = "TWD") {

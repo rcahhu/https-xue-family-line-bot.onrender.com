@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const emptyDatabase = {
-  version: 1,
+  version: 2,
   trips: []
 };
 
@@ -34,6 +34,8 @@ export class TripStore {
     const raw = await fs.readFile(this.dataFile, "utf8");
     const db = JSON.parse(raw || "{}");
     if (!Array.isArray(db.trips)) db.trips = [];
+    db.version = Math.max(Number(db.version || 1), emptyDatabase.version);
+    db.trips.forEach(hydrateTrip);
     return db;
   }
 
@@ -75,6 +77,7 @@ export class TripStore {
   async createTrip({ title, area, owner, sourceKey }) {
     return this.mutate((db) => {
       const now = new Date().toISOString();
+      const actor = normalizeActor(owner);
       const trip = {
         id: createId("trip"),
         title: cleanText(title) || "未命名旅行",
@@ -82,11 +85,13 @@ export class TripStore {
         inviteToken: createId("invite"),
         createdAt: now,
         updatedAt: now,
-        owner: normalizeActor(owner),
+        owner: actor,
+        createdBy: actor,
+        updatedBy: actor,
         sourceKeys: sourceKey ? [sourceKey] : [],
         members: [
           {
-            ...normalizeActor(owner),
+            ...actor,
             role: "owner",
             joinedAt: now
           }
@@ -103,9 +108,11 @@ export class TripStore {
     return this.mutate((db) => {
       const trip = findTrip(db, id);
       requireMember(trip, actor);
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
       if (patch.title !== undefined) trip.title = cleanText(patch.title) || trip.title;
       if (patch.area !== undefined) trip.area = cleanText(patch.area) || trip.area;
-      touch(trip);
+      touch(trip, normalizedActor);
       return trip;
     });
   }
@@ -120,7 +127,7 @@ export class TripStore {
       if (sourceKey && !trip.sourceKeys.includes(sourceKey)) {
         trip.sourceKeys.push(sourceKey);
       }
-      touch(trip);
+      touch(trip, member);
       return { trip, member };
     });
   }
@@ -129,10 +136,11 @@ export class TripStore {
     return this.mutate((db) => {
       const trip = findTrip(db, id);
       requireMember(trip, actor);
+      const normalizedActor = normalizeActor(actor);
       if (sourceKey && !trip.sourceKeys.includes(sourceKey)) {
         trip.sourceKeys.push(sourceKey);
       }
-      touch(trip);
+      touch(trip, normalizedActor);
       return trip;
     });
   }
@@ -142,15 +150,19 @@ export class TripStore {
       const trip = findTrip(db, id);
       requireMember(trip, actor);
       const now = new Date().toISOString();
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
       const itineraryItem = normalizeItineraryItem({
         ...item,
         id: createId("item"),
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        createdBy: normalizedActor,
+        updatedBy: normalizedActor
       });
       trip.itinerary.push(itineraryItem);
       sortItinerary(trip);
-      touch(trip);
+      touch(trip, normalizedActor);
       return itineraryItem;
     });
   }
@@ -161,10 +173,22 @@ export class TripStore {
       requireMember(trip, actor);
       const item = trip.itinerary.find((entry) => entry.id === itemId);
       if (!item) throw new HttpError(404, "找不到這個行程");
-      Object.assign(item, normalizeItineraryItem({ ...item, ...patch, id: item.id }));
-      item.updatedAt = new Date().toISOString();
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
+      Object.assign(
+        item,
+        normalizeItineraryItem({
+          ...item,
+          ...patch,
+          id: item.id,
+          createdAt: item.createdAt,
+          createdBy: item.createdBy,
+          updatedAt: new Date().toISOString(),
+          updatedBy: normalizedActor
+        })
+      );
       sortItinerary(trip);
-      touch(trip);
+      touch(trip, normalizedActor);
       return item;
     });
   }
@@ -176,7 +200,7 @@ export class TripStore {
       const before = trip.itinerary.length;
       trip.itinerary = trip.itinerary.filter((entry) => entry.id !== itemId);
       if (trip.itinerary.length === before) throw new HttpError(404, "找不到這個行程");
-      touch(trip);
+      touch(trip, normalizeActor(actor));
       return { ok: true };
     });
   }
@@ -194,12 +218,14 @@ export class TripStore {
         text: cleanText(wish.text),
         status: normalizeWishStatus(wish.status),
         author: normalizedActor,
+        createdBy: normalizedActor,
+        updatedBy: normalizedActor,
         createdAt: now,
         updatedAt: now
       };
       if (!createdWish.text) throw new HttpError(400, "許願內容不能空白");
       trip.wishes.unshift(createdWish);
-      touch(trip);
+      touch(trip, normalizedActor);
       return createdWish;
     });
   }
@@ -210,11 +236,14 @@ export class TripStore {
       requireMember(trip, actor);
       const wish = trip.wishes.find((entry) => entry.id === wishId);
       if (!wish) throw new HttpError(404, "找不到這個願望");
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
       if (patch.type !== undefined) wish.type = normalizeWishType(patch.type);
       if (patch.text !== undefined) wish.text = cleanText(patch.text);
       if (patch.status !== undefined) wish.status = normalizeWishStatus(patch.status);
+      wish.updatedBy = normalizedActor;
       wish.updatedAt = new Date().toISOString();
-      touch(trip);
+      touch(trip, normalizedActor);
       return wish;
     });
   }
@@ -226,7 +255,7 @@ export class TripStore {
       const before = trip.wishes.length;
       trip.wishes = trip.wishes.filter((entry) => entry.id !== wishId);
       if (trip.wishes.length === before) throw new HttpError(404, "找不到這個願望");
-      touch(trip);
+      touch(trip, normalizeActor(actor));
       return { ok: true };
     });
   }
@@ -250,6 +279,50 @@ export function makeSourceKey(source = {}) {
   if (source.roomId) return `room:${source.roomId}`;
   if (source.userId) return `user:${source.userId}`;
   return "";
+}
+
+function hydrateTrip(trip) {
+  const actor = normalizeActor(trip.owner || trip.createdBy || { displayName: "旅伴" });
+  trip.owner = normalizeActor(trip.owner || actor);
+  trip.createdBy = normalizeActor(trip.createdBy || trip.owner);
+  trip.updatedBy = normalizeActor(trip.updatedBy || trip.owner);
+  trip.sourceKeys = Array.isArray(trip.sourceKeys) ? trip.sourceKeys : [];
+  trip.members = Array.isArray(trip.members) ? trip.members.map(hydrateMember) : [];
+  if (!trip.members.some((member) => member.lineUserId === trip.owner.lineUserId)) {
+    trip.members.unshift({
+      ...trip.owner,
+      role: "owner",
+      joinedAt: trip.createdAt || new Date().toISOString()
+    });
+  }
+  trip.itinerary = Array.isArray(trip.itinerary)
+    ? trip.itinerary.map((item) => normalizeItineraryItem(item))
+    : [];
+  trip.wishes = Array.isArray(trip.wishes) ? trip.wishes.map(hydrateWish) : [];
+  return trip;
+}
+
+function hydrateMember(member) {
+  return {
+    ...normalizeActor(member),
+    role: member.role === "owner" ? "owner" : "member",
+    joinedAt: member.joinedAt || new Date().toISOString()
+  };
+}
+
+function hydrateWish(wish) {
+  const author = normalizeActor(wish.author || wish.createdBy || { displayName: "旅伴" });
+  return {
+    ...wish,
+    type: normalizeWishType(wish.type),
+    text: cleanText(wish.text),
+    status: normalizeWishStatus(wish.status),
+    author,
+    createdBy: normalizeActor(wish.createdBy || author),
+    updatedBy: normalizeActor(wish.updatedBy || wish.createdBy || author),
+    createdAt: wish.createdAt || new Date().toISOString(),
+    updatedAt: wish.updatedAt || wish.createdAt || new Date().toISOString()
+  };
 }
 
 function canSeeTrip(trip, { userId, sourceKey } = {}) {
@@ -291,25 +364,54 @@ function upsertMember(trip, actor = {}, role = "member") {
 }
 
 function normalizeItineraryItem(item = {}) {
+  const createdBy = normalizeActor(item.createdBy || { displayName: "旅伴" });
   return {
     id: item.id,
+    type: normalizeItineraryType(item.type),
     title: cleanText(item.title) || "未命名行程",
     place: cleanText(item.place),
     date: cleanText(item.date),
     time: cleanText(item.time),
+    endDate: cleanText(item.endDate),
+    endTime: cleanText(item.endTime),
     note: cleanText(item.note),
     ticketStatus: normalizeStatus(item.ticketStatus),
     reservationStatus: normalizeStatus(item.reservationStatus),
     price: normalizePrice(item.price),
     currency: cleanText(item.currency || "TWD") || "TWD",
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt
+    transportMode: cleanText(item.transportMode),
+    transportName: cleanText(item.transportName),
+    transportNumber: cleanText(item.transportNumber),
+    fromPlace: cleanText(item.fromPlace),
+    toPlace: cleanText(item.toPlace),
+    boardingPlace: cleanText(item.boardingPlace),
+    duration: cleanText(item.duration),
+    lodgingName: cleanText(item.lodgingName),
+    lodgingAddress: cleanText(item.lodgingAddress),
+    checkInDate: cleanText(item.checkInDate),
+    checkOutDate: cleanText(item.checkOutDate),
+    breakfast: normalizeBreakfast(item.breakfast),
+    confirmationNumber: cleanText(item.confirmationNumber),
+    createdBy,
+    updatedBy: normalizeActor(item.updatedBy || createdBy),
+    createdAt: item.createdAt || new Date().toISOString(),
+    updatedAt: item.updatedAt || item.createdAt || new Date().toISOString()
   };
+}
+
+function normalizeItineraryType(value) {
+  const allowed = new Set(["activity", "transport", "lodging"]);
+  return allowed.has(value) ? value : "activity";
 }
 
 function normalizeStatus(value) {
   const allowed = new Set(["none", "needed", "done"]);
   return allowed.has(value) ? value : "none";
+}
+
+function normalizeBreakfast(value) {
+  const allowed = new Set(["unknown", "included", "not_included"]);
+  return allowed.has(value) ? value : "unknown";
 }
 
 function normalizeWishType(value) {
@@ -330,14 +432,19 @@ function normalizePrice(value) {
 
 function sortItinerary(trip) {
   trip.itinerary.sort((a, b) => {
-    const left = `${a.date || "9999-12-31"} ${a.time || "99:99"}`;
-    const right = `${b.date || "9999-12-31"} ${b.time || "99:99"}`;
+    const left = `${scheduleDate(a) || "9999-12-31"} ${a.time || "99:99"}`;
+    const right = `${scheduleDate(b) || "9999-12-31"} ${b.time || "99:99"}`;
     return left.localeCompare(right);
   });
 }
 
-function touch(trip) {
+function scheduleDate(item) {
+  return item.date || item.checkInDate || item.createdAt?.slice(0, 10) || "";
+}
+
+function touch(trip, actor = {}) {
   trip.updatedAt = new Date().toISOString();
+  trip.updatedBy = normalizeActor(actor || trip.updatedBy || trip.owner);
 }
 
 function cleanText(value) {
