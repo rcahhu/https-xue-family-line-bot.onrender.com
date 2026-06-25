@@ -134,6 +134,12 @@ async function handleApi(req, res, url) {
     return sendJson(res, { trip });
   }
 
+  if (req.method === "DELETE" && parts.length === 3) {
+    const body = await readJson(req);
+    const result = await store.deleteTrip(tripId, normalizeActor(body.actor));
+    return sendJson(res, result);
+  }
+
   if (req.method === "POST" && parts[3] === "join") {
     const body = await readJson(req);
     const result = await store.joinTrip(tripId, {

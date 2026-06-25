@@ -11,9 +11,12 @@
   <body>
     <div class="app-shell">
       <header class="topbar">
-        <div>
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">薛</span>
+          <div>
           <p class="eyebrow">LINE 旅行日記</p>
           <h1>薛家好好玩</h1>
+          </div>
         </div>
         <div class="top-actions">
           <span id="userBadge" class="user-badge">載入中</span>
@@ -23,9 +26,14 @@
 
       <main class="layout">
         <aside class="sidebar" aria-label="旅行本">
+          <div class="sidebar-title">
+            <h2>我的日記</h2>
+            <p>選一本開始排行程</p>
+          </div>
           <form id="createTripForm" class="create-form">
+            <h2>建立日記</h2>
             <label>
-              旅行本
+              日記名稱
               <input id="tripTitleInput" name="title" autocomplete="off" placeholder="宜蘭" required />
             </label>
             <label>
@@ -39,12 +47,21 @@
 
         <section class="workspace" aria-live="polite">
           <div id="emptyState" class="empty-state">
-            <h2>新增一本旅行日記</h2>
-            <p>例如「宜蘭」，再把行程、訂位、購票、價格和大家的願望收進同一本。</p>
+            <p>從左邊建立或選擇一本旅行日記。</p>
           </div>
 
           <div id="tripView" class="trip-view" hidden>
             <section class="trip-head">
+              <div class="trip-hero">
+                <div>
+                  <p class="eyebrow">旅行日記</p>
+                  <h2 id="tripHeroTitle">旅行日記</h2>
+                  <p id="tripHeroMeta">載入中</p>
+                </div>
+              </div>
+
+              <details class="trip-edit">
+                <summary>編輯日記</summary>
               <form id="tripSettingsForm" class="trip-settings">
                 <label>
                   名稱
@@ -56,6 +73,10 @@
                 </label>
                 <button class="compact-button" type="submit">儲存</button>
               </form>
+              <div class="trip-actions">
+                <button id="deleteTripButton" class="danger-button" type="button">刪除日記</button>
+              </div>
+              </details>
               <div id="tripStats" class="stats"></div>
             </section>
 
@@ -75,6 +96,7 @@
       </main>
     </div>
 
+    <button id="quickAddButton" class="quick-add" type="button" hidden>＋</button>
     <div id="toast" class="toast" role="status" hidden></div>
   </body>
 </html>

@@ -12,6 +12,7 @@ const state = {
 const els = {
   userBadge: document.querySelector("#userBadge"),
   inviteButton: document.querySelector("#inviteButton"),
+  deleteTripButton: document.querySelector("#deleteTripButton"),
   createTripForm: document.querySelector("#createTripForm"),
   tripTitleInput: document.querySelector("#tripTitleInput"),
   tripAreaInput: document.querySelector("#tripAreaInput"),
@@ -21,21 +22,24 @@ const els = {
   tripSettingsForm: document.querySelector("#tripSettingsForm"),
   currentTripTitle: document.querySelector("#currentTripTitle"),
   currentTripArea: document.querySelector("#currentTripArea"),
+  tripHeroTitle: document.querySelector("#tripHeroTitle"),
+  tripHeroMeta: document.querySelector("#tripHeroMeta"),
   tripStats: document.querySelector("#tripStats"),
   tabs: document.querySelector(".tabs"),
   itineraryPanel: document.querySelector("#itineraryPanel"),
   wishesPanel: document.querySelector("#wishesPanel"),
   recommendationsPanel: document.querySelector("#recommendationsPanel"),
   membersPanel: document.querySelector("#membersPanel"),
+  quickAddButton: document.querySelector("#quickAddButton"),
   toast: document.querySelector("#toast")
 };
 
 window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
-  showError(event.reason || new Error("發生錯誤"));
+  showError(event.reason || new Error("操作失敗"));
 });
 
-init().catch((error) => showError(error));
+init().catch(showError);
 
 async function init() {
   bindEvents();
@@ -53,13 +57,8 @@ async function init() {
 
   await loadTrips();
 
-  if (tripId) {
-    await selectTrip(tripId, inviteToken);
-  } else if (!state.currentTrip && state.trips.length) {
-    await selectTrip(state.trips[0].id);
-  } else {
-    render();
-  }
+  if (tripId) await selectTrip(tripId, inviteToken);
+  else render();
 }
 
 function bindEvents() {
@@ -68,14 +67,16 @@ function bindEvents() {
     const title = els.tripTitleInput.value.trim();
     const area = els.tripAreaInput.value.trim() || title;
     if (!title) return;
+
     const { trip } = await api("/api/trips", {
       method: "POST",
       body: { title, area, actor: state.user }
     });
+
     els.createTripForm.reset();
     await loadTrips();
     await selectTrip(trip.id);
-    toast(`已新增「${trip.title}」`);
+    toast(`已建立「${trip.title}」`);
   });
 
   els.tripList.addEventListener("click", async (event) => {
@@ -97,7 +98,25 @@ function bindEvents() {
     await refreshCurrentTrip();
     await loadTrips();
     await loadRecommendations(true);
-    toast("已儲存旅行日記");
+    toast("日記已儲存");
+  });
+
+  els.deleteTripButton.addEventListener("click", async () => {
+    if (!state.currentTrip) return;
+    const confirmed = window.confirm(
+      `確定要刪除「${state.currentTrip.title}」嗎？這本日記裡的行程、住宿、搭車和許願都會一起刪除。`
+    );
+    if (!confirmed) return;
+
+    await api(`/api/trips/${state.currentTrip.id}`, {
+      method: "DELETE",
+      body: { actor: state.user }
+    });
+    state.currentTrip = null;
+    await loadTrips();
+    history.replaceState(null, "", "/app");
+    render();
+    toast("日記已刪除");
   });
 
   els.tabs.addEventListener("click", (event) => {
@@ -108,6 +127,17 @@ function bindEvents() {
   });
 
   els.inviteButton.addEventListener("click", () => inviteCurrentTrip().catch(showError));
+  els.quickAddButton.addEventListener("click", () => {
+    if (!state.currentTrip) return;
+    state.activeTab = "itinerary";
+    renderPanels();
+    const addBox = document.querySelector("#addItineraryBox");
+    if (addBox) {
+      addBox.open = true;
+      addBox.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => addBox.querySelector("input[name='title']")?.focus(), 250);
+    }
+  });
 
   els.itineraryPanel.addEventListener("submit", async (event) => {
     if (event.target.matches(".item-form")) {
@@ -120,7 +150,7 @@ function bindEvents() {
       event.target.reset();
       syncTypeFields(event.target);
       await refreshCurrentTrip();
-      toast("已加入行程");
+      toast("行程已新增");
       return;
     }
 
@@ -133,38 +163,31 @@ function bindEvents() {
         body: { actor: state.user, patch }
       });
       await refreshCurrentTrip();
-      toast("已更新行程");
+      toast("行程已修改");
     }
   });
 
-  els.itineraryPanel.addEventListener("change", async (event) => {
+  els.itineraryPanel.addEventListener("change", (event) => {
     const typeSelect = event.target.closest(".item-type-select");
-    if (typeSelect) {
-      syncTypeFields(typeSelect.form);
-      return;
-    }
-
-    const target = event.target.closest("[data-item-field]");
-    if (!target) return;
-    const itemId = target.dataset.itemId;
-    const field = target.dataset.itemField;
-    const value = field === "price" ? Number(target.value || 0) : target.value;
-    await api(`/api/trips/${state.currentTrip.id}/itinerary/${itemId}`, {
-      method: "PATCH",
-      body: { actor: state.user, patch: { [field]: value } }
-    });
-    await refreshCurrentTrip();
+    if (typeSelect) syncTypeFields(typeSelect.form);
   });
 
   els.itineraryPanel.addEventListener("click", async (event) => {
+    const editButton = event.target.closest("[data-edit-toggle]");
+    if (editButton) {
+      editButton.closest("article")?.querySelector("details")?.setAttribute("open", "");
+      return;
+    }
+
     const button = event.target.closest("[data-delete-item]");
     if (!button) return;
+    if (!window.confirm("確定刪除這筆行程嗎？")) return;
     await api(`/api/trips/${state.currentTrip.id}/itinerary/${button.dataset.deleteItem}`, {
       method: "DELETE",
       body: { actor: state.user }
     });
     await refreshCurrentTrip();
-    toast("已刪除行程");
+    toast("行程已刪除");
   });
 
   els.wishesPanel.addEventListener("submit", async (event) => {
@@ -177,7 +200,7 @@ function bindEvents() {
     });
     event.target.reset();
     await refreshCurrentTrip();
-    toast("已加入許願池");
+    toast("願望已加入");
   });
 
   els.wishesPanel.addEventListener("change", async (event) => {
@@ -196,12 +219,13 @@ function bindEvents() {
   els.wishesPanel.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-delete-wish]");
     if (!button) return;
+    if (!window.confirm("確定刪除這個願望嗎？")) return;
     await api(`/api/trips/${state.currentTrip.id}/wishes/${button.dataset.deleteWish}`, {
       method: "DELETE",
       body: { actor: state.user }
     });
     await refreshCurrentTrip();
-    toast("已刪除願望");
+    toast("願望已刪除");
   });
 
   els.recommendationsPanel.addEventListener("click", async (event) => {
@@ -243,9 +267,7 @@ async function resolveUser() {
     await window.liff.init({ liffId: state.config.liffId });
     state.liffReady = true;
     if (!window.liff.isLoggedIn()) {
-      if (window.liff.isInClient()) {
-        window.liff.login({ redirectUri: location.href });
-      }
+      if (window.liff.isInClient()) window.liff.login({ redirectUri: location.href });
       return fallback;
     }
     const profile = await window.liff.getProfile();
@@ -333,7 +355,7 @@ async function loadRecommendations(force = false, coords = {}) {
 
 async function loadRecommendationsFromLocation() {
   if (!navigator.geolocation) {
-    toast("這個瀏覽器不支援定位");
+    toast("這台裝置不支援定位，先用日記地區推薦");
     return;
   }
   navigator.geolocation.getCurrentPosition(
@@ -343,9 +365,9 @@ async function loadRecommendationsFromLocation() {
         lng: String(position.coords.longitude)
       });
       renderRecommendations();
-      toast("已更新附近推薦");
+      toast("已更新附近熱門");
     },
-    () => toast("定位沒有啟用，先用旅行地區推薦")
+    () => toast("無法取得定位，先用日記地區推薦")
   );
 }
 
@@ -353,13 +375,18 @@ function render() {
   renderUser();
   renderTripList();
   const hasTrip = Boolean(state.currentTrip);
+  document.body.classList.toggle("has-trip", hasTrip);
+  document.body.classList.toggle("no-trip", !hasTrip);
   els.emptyState.hidden = hasTrip;
   els.tripView.hidden = !hasTrip;
   els.inviteButton.disabled = !hasTrip;
+  els.quickAddButton.hidden = !hasTrip;
   if (!hasTrip) return;
 
   els.currentTripTitle.value = state.currentTrip.title;
   els.currentTripArea.value = state.currentTrip.area;
+  els.tripHeroTitle.textContent = state.currentTrip.title;
+  els.tripHeroMeta.textContent = `${state.currentTrip.area} · ${state.currentTrip.members.length} 位同伴 · ${state.currentTrip.itinerary.length} 筆行程`;
   renderStats();
   renderItinerary();
   renderWishes();
@@ -374,15 +401,17 @@ function renderUser() {
 
 function renderTripList() {
   if (!state.trips.length) {
-    els.tripList.innerHTML = `<p class="muted">還沒有旅行日記</p>`;
+    els.tripList.innerHTML = `<p class="muted">還沒有日記</p>`;
     return;
   }
   els.tripList.innerHTML = state.trips
     .map(
-      (trip) => `
-        <button class="trip-link ${state.currentTrip?.id === trip.id ? "is-active" : ""}" type="button" data-trip-id="${escapeAttr(trip.id)}">
-          <strong>${escapeHtml(trip.title)}</strong>
-          <span>${escapeHtml(trip.area)} · ${trip.itinerary.length} 個行程 · ${trip.members.length} 位同伴</span>
+      (trip, index) => `
+        <button class="trip-link cover-${index % 4} ${state.currentTrip?.id === trip.id ? "is-active" : ""}" type="button" data-trip-id="${escapeAttr(trip.id)}">
+          <span class="trip-cover">
+            <strong>${escapeHtml(trip.title)}</strong>
+          </span>
+          <span>${escapeHtml(trip.area)} · ${trip.itinerary.length} 筆行程 · ${trip.members.length} 位同伴</span>
         </button>
       `
     )
@@ -394,10 +423,10 @@ function renderStats() {
   const budget = trip.itinerary.reduce((sum, item) => sum + Number(item.price || 0), 0);
   const transportCount = trip.itinerary.filter((item) => item.type === "transport").length;
   const lodgingCount = trip.itinerary.filter((item) => item.type === "lodging").length;
-  const memberNames = trip.members.map((member) => member.displayName).join("、") || "尚無同伴";
+  const memberNames = trip.members.map((member) => member.displayName).join("、") || "尚未加入";
   els.tripStats.innerHTML = [
-    stat("預估花費", money(budget)),
-    stat("行程規劃", `${trip.itinerary.length} 筆`),
+    stat("總預估花費", money(budget)),
+    stat("行程", `${trip.itinerary.length} 筆`),
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
     stat("同伴", `${trip.members.length} 人`),
@@ -409,14 +438,17 @@ function renderStats() {
 function renderItinerary() {
   const trip = state.currentTrip;
   const rows = trip.itinerary.length
-    ? trip.itinerary.map((item) => itineraryRow(item)).join("")
-    : `<p class="muted">還沒有行程規劃</p>`;
+    ? groupedItineraryRows(trip.itinerary)
+    : `<p class="muted">還沒有行程。先用上方表單新增一筆。</p>`;
 
   els.itineraryPanel.innerHTML = `
-    <form class="item-form">
-      ${itineraryFields()}
-      <button class="primary-button full" type="submit">＋ 加入行程</button>
-    </form>
+    <details id="addItineraryBox" class="add-entry">
+      <summary>新增行程</summary>
+      <form class="item-form">
+        ${itineraryFields()}
+        <button class="primary-button full" type="submit">新增行程</button>
+      </form>
+    </details>
     <div class="row-list">${rows}</div>
   `;
   els.itineraryPanel.querySelectorAll(".item-form, .item-edit-form").forEach(syncTypeFields);
@@ -425,7 +457,7 @@ function renderItinerary() {
 function itineraryFields(item = {}) {
   return `
     <label>
-      類型
+      種類
       <select class="item-type-select" name="type">
         ${selectOptions(
           {
@@ -445,118 +477,89 @@ function itineraryFields(item = {}) {
       時間
       <input type="time" name="time" value="${escapeAttr(item.time || "")}" />
     </label>
-    <label>
-      結束時間
-      <input type="time" name="endTime" value="${escapeAttr(item.endTime || "")}" />
-    </label>
     <label class="wide">
-      行程名稱
-      <input name="title" autocomplete="off" placeholder="羅東夜市、台鐵、住宿" value="${escapeAttr(item.title || "")}" required />
+      標題
+      <input name="title" autocomplete="off" placeholder="羅東夜市、台鐵到宜蘭、礁溪住宿" value="${escapeAttr(item.title || "")}" required />
     </label>
     <label class="wide">
       地點
-      <input name="place" autocomplete="off" placeholder="宜蘭、礁溪、羅東" value="${escapeAttr(item.place || "")}" />
+      <input name="place" autocomplete="off" placeholder="宜蘭、羅東、台北車站" value="${escapeAttr(item.place || "")}" />
     </label>
-    <section class="type-fields type-transport full" data-type-fields="transport">
-      <h3>搭車資訊</h3>
-      <div class="field-grid">
-        <label>
-          交通工具
-          <input name="transportMode" placeholder="台鐵、高鐵、客運、租車" value="${escapeAttr(item.transportMode || "")}" />
-        </label>
-        <label>
-          車種/業者
-          <input name="transportName" placeholder="自強號、葛瑪蘭客運" value="${escapeAttr(item.transportName || "")}" />
-        </label>
-        <label>
-          車次/班次
-          <input name="transportNumber" placeholder="123、1915" value="${escapeAttr(item.transportNumber || "")}" />
-        </label>
-        <label>
-          哪裡到哪裡
-          <input name="fromPlace" placeholder="台北車站" value="${escapeAttr(item.fromPlace || "")}" />
-        </label>
-        <label>
-          抵達地
-          <input name="toPlace" placeholder="宜蘭車站" value="${escapeAttr(item.toPlace || "")}" />
-        </label>
-        <label>
-          在哪裡坐
-          <input name="boardingPlace" placeholder="台北轉運站 4 號月台" value="${escapeAttr(item.boardingPlace || "")}" />
-        </label>
-        <label>
-          時長
-          <input name="duration" placeholder="1 小時 20 分" value="${escapeAttr(item.duration || "")}" />
-        </label>
-      </div>
+
+    <section class="type-fields full" data-type-fields="transport">
+      <label class="full">
+        搭車一句話
+        <input name="transportSummary" placeholder="台鐵 123 次，09:00 台北到宜蘭，台北車站搭，約 1 小時 20 分" value="${escapeAttr(item.transportSummary || "")}" />
+      </label>
+      <details class="soft-details">
+        <summary>要更清楚再填車次、上下車地點</summary>
+        <div class="field-grid">
+          <label>交通方式<input name="transportMode" placeholder="台鐵、高鐵、客運、計程車" value="${escapeAttr(item.transportMode || "")}" /></label>
+          <label>車名/路線<input name="transportName" placeholder="台鐵、葛瑪蘭客運" value="${escapeAttr(item.transportName || "")}" /></label>
+          <label>車次/班次<input name="transportNumber" placeholder="123、1915" value="${escapeAttr(item.transportNumber || "")}" /></label>
+          <label>從哪裡<input name="fromPlace" placeholder="台北車站" value="${escapeAttr(item.fromPlace || "")}" /></label>
+          <label>到哪裡<input name="toPlace" placeholder="宜蘭車站" value="${escapeAttr(item.toPlace || "")}" /></label>
+          <label>在哪坐<input name="boardingPlace" placeholder="台北車站 4 月台" value="${escapeAttr(item.boardingPlace || "")}" /></label>
+          <label>時長<input name="duration" placeholder="1 小時 20 分" value="${escapeAttr(item.duration || "")}" /></label>
+        </div>
+      </details>
     </section>
-    <section class="type-fields type-lodging full" data-type-fields="lodging">
-      <h3>住宿資訊</h3>
+
+    <section class="type-fields full" data-type-fields="lodging">
+      <label class="full">
+        住宿一句話
+        <input name="lodgingSummary" placeholder="礁溪老爺，雙人房，含早餐，15:00 入住" value="${escapeAttr(item.lodgingSummary || "")}" />
+      </label>
+      <details class="soft-details">
+        <summary>要更清楚再填地址、早餐、訂房編號</summary>
+        <div class="field-grid">
+          <label>住哪<input name="lodgingName" placeholder="飯店 / 民宿名稱" value="${escapeAttr(item.lodgingName || "")}" /></label>
+          <label>地址<input name="lodgingAddress" placeholder="住宿地址" value="${escapeAttr(item.lodgingAddress || "")}" /></label>
+          <label>入住日<input type="date" name="checkInDate" value="${escapeAttr(item.checkInDate || "")}" /></label>
+          <label>退房日<input type="date" name="checkOutDate" value="${escapeAttr(item.checkOutDate || "")}" /></label>
+          <label>
+            早餐
+            <select name="breakfast">
+              ${selectOptions(
+                { unknown: "還不確定", included: "有早餐", not_included: "沒有早餐" },
+                item.breakfast || "unknown"
+              )}
+            </select>
+          </label>
+          <label>訂房編號<input name="confirmationNumber" placeholder="可空白" value="${escapeAttr(item.confirmationNumber || "")}" /></label>
+        </div>
+      </details>
+    </section>
+
+    <details class="more-fields full">
+      <summary>購票、訂位、價格、備註</summary>
       <div class="field-grid">
         <label>
-          住哪
-          <input name="lodgingName" placeholder="飯店 / 民宿名稱" value="${escapeAttr(item.lodgingName || "")}" />
-        </label>
-        <label>
-          地址
-          <input name="lodgingAddress" placeholder="住宿地址" value="${escapeAttr(item.lodgingAddress || "")}" />
-        </label>
-        <label>
-          入住日
-          <input type="date" name="checkInDate" value="${escapeAttr(item.checkInDate || "")}" />
-        </label>
-        <label>
-          退房日
-          <input type="date" name="checkOutDate" value="${escapeAttr(item.checkOutDate || "")}" />
-        </label>
-        <label>
-          早餐
-          <select name="breakfast">
-            ${selectOptions(
-              { unknown: "未確認", included: "有早餐", not_included: "沒有早餐" },
-              item.breakfast || "unknown"
-            )}
+          是否購票
+          <select name="ticketStatus">
+            ${statusOptions("ticket", item.ticketStatus || "none")}
           </select>
         </label>
         <label>
-          訂房編號
-          <input name="confirmationNumber" placeholder="訂房平台或確認碼" value="${escapeAttr(item.confirmationNumber || "")}" />
+          是否訂位
+          <select name="reservationStatus">
+            ${statusOptions("reservation", item.reservationStatus || "none")}
+          </select>
         </label>
+        <label>價格<input type="number" name="price" min="0" step="1" value="${Number(item.price || 0)}" /></label>
+        <label>幣別<input name="currency" value="${escapeAttr(item.currency || "TWD")}" /></label>
+        <label class="full">備註<textarea name="note" placeholder="集合點、注意事項、誰要先付款">${escapeHtml(item.note || "")}</textarea></label>
       </div>
-    </section>
-    <label>
-      是否購票
-      <select name="ticketStatus">
-        ${statusOptions("ticket", item.ticketStatus || "none")}
-      </select>
-    </label>
-    <label>
-      是否訂位
-      <select name="reservationStatus">
-        ${statusOptions("reservation", item.reservationStatus || "none")}
-      </select>
-    </label>
-    <label>
-      價格
-      <input type="number" name="price" min="0" step="1" value="${Number(item.price || 0)}" />
-    </label>
-    <label>
-      幣別
-      <input name="currency" value="${escapeAttr(item.currency || "TWD")}" />
-    </label>
-    <label class="full">
-      備註
-      <textarea name="note" placeholder="票券、訂位時間、集合點">${escapeHtml(item.note || "")}</textarea>
-    </label>
+    </details>
   `;
 }
 
 function itineraryRow(item) {
   return `
-    <article class="data-row itinerary-row">
+    <article class="data-row itinerary-row entry-row">
+      <div class="entry-icon" data-type="${escapeAttr(item.type || "activity")}">${entryIconText(item.type)}</div>
       <div class="row-title">
         <div class="title-line">
-          <span class="type-badge">${itineraryTypeLabel(item.type)}</span>
           <strong>${escapeHtml(item.title)}</strong>
         </div>
         <small>${escapeHtml(formatWhen(item))}${item.place ? ` · ${escapeHtml(item.place)}` : ""}</small>
@@ -564,15 +567,9 @@ function itineraryRow(item) {
         ${item.note ? `<small>備註：${escapeHtml(item.note)}</small>` : ""}
         <small class="audit-line">${auditLine(item)}</small>
       </div>
-      <div class="row-controls">
-        <span class="pill">${money(item.price || 0, item.currency)}</span>
-        <select data-item-id="${escapeAttr(item.id)}" data-item-field="ticketStatus" aria-label="是否購票">
-          ${statusOptions("ticket", item.ticketStatus)}
-        </select>
-        <select data-item-id="${escapeAttr(item.id)}" data-item-field="reservationStatus" aria-label="是否訂位">
-          ${statusOptions("reservation", item.reservationStatus)}
-        </select>
-        <input type="number" min="0" step="1" value="${Number(item.price || 0)}" data-item-id="${escapeAttr(item.id)}" data-item-field="price" aria-label="價格" />
+      <div class="row-controls entry-side">
+        <span class="entry-price">${money(item.price || 0, item.currency)}</span>
+        <button class="plain-button" type="button" data-edit-toggle="${escapeAttr(item.id)}">修改</button>
         <button class="danger-button" type="button" data-delete-item="${escapeAttr(item.id)}">刪除</button>
       </div>
       <details class="edit-details full">
@@ -586,11 +583,31 @@ function itineraryRow(item) {
   `;
 }
 
+function groupedItineraryRows(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = item.date || item.checkInDate || "未定日期";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return Array.from(groups.entries())
+    .map(
+      ([date, groupItems]) => `
+        <section class="date-group">
+          <h3>${escapeHtml(formatGroupDate(date))}</h3>
+          ${groupItems.map((item) => itineraryRow(item)).join("")}
+        </section>
+      `
+    )
+    .join("");
+}
+
 function itineraryDetail(item) {
   if (item.type === "transport") {
     const details = [
+      item.transportSummary,
       joinParts([item.transportMode, item.transportName, item.transportNumber], " "),
-      joinParts([item.fromPlace, item.toPlace], " → "),
+      joinParts([item.fromPlace, item.toPlace], " 到 "),
       item.boardingPlace ? `在哪坐：${item.boardingPlace}` : "",
       item.duration ? `時長：${item.duration}` : ""
     ].filter(Boolean);
@@ -599,10 +616,11 @@ function itineraryDetail(item) {
 
   if (item.type === "lodging") {
     const details = [
+      item.lodgingSummary,
       item.lodgingName ? `住哪：${item.lodgingName}` : "",
       item.lodgingAddress ? `地址：${item.lodgingAddress}` : "",
       item.checkInDate || item.checkOutDate
-        ? `入住/退房：${item.checkInDate || "未填"} → ${item.checkOutDate || "未填"}`
+        ? `入住/退房：${item.checkInDate || "未定"} 到 ${item.checkOutDate || "未定"}`
         : "",
       `早餐：${breakfastLabel(item.breakfast)}`,
       item.confirmationNumber ? `訂房編號：${item.confirmationNumber}` : ""
@@ -617,11 +635,11 @@ function renderWishes() {
   const trip = state.currentTrip;
   const rows = trip.wishes.length
     ? trip.wishes.map((wish) => wishRow(wish)).join("")
-    : `<p class="muted">還沒有願望</p>`;
+    : `<p class="muted">還沒有願望。大家想吃什麼、想去哪裡，都可以先丟進來。</p>`;
   els.wishesPanel.innerHTML = `
     <form class="wish-form">
       <label>
-        類型
+        種類
         <select name="type">
           <option value="food">想吃</option>
           <option value="spot">想去</option>
@@ -631,9 +649,9 @@ function renderWishes() {
       </label>
       <label>
         願望
-        <input name="text" autocomplete="off" placeholder="想吃甕窯雞" required />
+        <input name="text" autocomplete="off" placeholder="想吃烤鴨、想去海邊" required />
       </label>
-      <button class="primary-button" type="submit">＋ 許願</button>
+      <button class="primary-button" type="submit">加入願望</button>
     </form>
     <div class="row-list">${rows}</div>
   `;
@@ -647,7 +665,7 @@ function wishRow(wish) {
         <small>${wishTypeLabel(wish.type)} · ${escapeHtml(actorName(wish.author))}</small>
         <small class="audit-line">${auditLine(wish)}</small>
       </div>
-      <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="type" aria-label="願望類型">
+      <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="type" aria-label="願望種類">
         ${wishTypeOptions(wish.type)}
       </select>
       <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="status" aria-label="願望狀態">
@@ -661,7 +679,7 @@ function wishRow(wish) {
 function renderRecommendations() {
   const rec = state.recommendations;
   if (!rec) {
-    els.recommendationsPanel.innerHTML = `<p class="muted">載入附近推薦中</p>`;
+    els.recommendationsPanel.innerHTML = `<p class="muted">載入附近熱門中</p>`;
     return;
   }
 
@@ -670,7 +688,7 @@ function renderRecommendations() {
       <section class="recommendation-block">
         <div>
           <h3>${escapeHtml(rec.areaName)}玩法</h3>
-          <button class="plain-button" type="button" data-use-location>⌖ 定位附近</button>
+          <button class="plain-button" type="button" data-use-location>用目前位置更新</button>
         </div>
         <ul class="route-list">
           ${rec.routes.map((route) => `<li>${escapeHtml(route)}</li>`).join("")}
@@ -681,7 +699,7 @@ function renderRecommendations() {
         ${rec.spots.map((item) => recommendationItem(item)).join("")}
       </section>
       <section class="recommendation-block">
-        <h3>常見吃法</h3>
+        <h3>熱門美食</h3>
         ${rec.eats.map((item) => recommendationItem(item)).join("")}
       </section>
     </div>
@@ -699,7 +717,7 @@ function recommendationItem(item) {
         data-add-recommendation
         data-name="${escapeAttr(item.name)}"
         data-area="${escapeAttr(item.area)}"
-        data-note="${escapeAttr(item.note)}">＋</button>
+        data-note="${escapeAttr(item.note)}">加入</button>
     </article>
   `;
 }
@@ -742,7 +760,7 @@ async function inviteCurrentTrip() {
   const trip = state.currentTrip;
   if (!trip) return;
   const url = inviteUrl(trip);
-  const text = `薛家好好玩邀請你一起規劃「${trip.title}」旅行日記：${url}`;
+  const text = `一起編輯「${trip.title}」旅行日記：${url}`;
 
   if (
     window.liff &&
@@ -751,7 +769,7 @@ async function inviteCurrentTrip() {
     window.liff.isApiAvailable("shareTargetPicker")
   ) {
     const result = await window.liff.shareTargetPicker([{ type: "text", text }]);
-    toast(result ? "已送出邀請" : "已取消分享");
+    toast(result ? "已送出邀請" : "已取消邀請");
     return;
   }
 
@@ -762,7 +780,7 @@ async function inviteCurrentTrip() {
 
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(url);
-    toast("已複製邀請連結");
+    toast("邀請連結已複製");
     return;
   }
 
@@ -808,8 +826,8 @@ function stat(label, value) {
 function statusOptions(kind, selected) {
   const labels =
     kind === "ticket"
-      ? { none: "免購票", needed: "待購票", done: "已購票" }
-      : { none: "免訂位", needed: "待訂位", done: "已訂位" };
+      ? { none: "不用購票", needed: "要購票", done: "已購票" }
+      : { none: "不用訂位", needed: "要訂位", done: "已訂位" };
   return selectOptions(labels, selected);
 }
 
@@ -828,7 +846,7 @@ function wishTypeOptions(selected) {
 }
 
 function wishStatusOptions(selected) {
-  const labels = { open: "許願中", planned: "已排入", done: "已完成" };
+  const labels = { open: "想去/想吃", planned: "已排入", done: "已完成" };
   return selectOptions(labels, selected);
 }
 
@@ -840,17 +858,32 @@ function itineraryTypeLabel(type) {
   return { activity: "行程", transport: "搭車", lodging: "住宿" }[type] || "行程";
 }
 
+function entryIconText(type) {
+  return { activity: "行", transport: "車", lodging: "宿" }[type] || "行";
+}
+
 function breakfastLabel(value) {
-  return { unknown: "未確認", included: "有早餐", not_included: "沒有早餐" }[value] || "未確認";
+  return { unknown: "還不確定", included: "有早餐", not_included: "沒有早餐" }[value] || "還不確定";
 }
 
 function formatWhen(item) {
   if (item.type === "lodging" && (item.checkInDate || item.checkOutDate)) {
-    return `${item.checkInDate || "未填入住日"} → ${item.checkOutDate || "未填退房日"}`;
+    return `${item.checkInDate || "未定入住"} 到 ${item.checkOutDate || "未定退房"}`;
   }
   const start = [item.date, item.time].filter(Boolean).join(" ");
-  const end = item.endTime ? ` → ${item.endTime}` : "";
-  return start ? `${start}${end}` : "未排時間";
+  return start || "未定時間";
+}
+
+function formatGroupDate(value) {
+  if (value === "未定日期") return value;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("zh-Hant-TW", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short"
+  });
 }
 
 function formatDateTime(value) {
@@ -866,7 +899,7 @@ function formatDateTime(value) {
 }
 
 function auditLine(entry) {
-  return `新增：${actorName(entry.createdBy)} ${formatDateTime(entry.createdAt)}｜最後修改：${actorName(entry.updatedBy)} ${formatDateTime(entry.updatedAt)}`;
+  return `新增：${actorName(entry.createdBy)} ${formatDateTime(entry.createdAt)} · 最後修改：${actorName(entry.updatedBy)} ${formatDateTime(entry.updatedAt)}`;
 }
 
 function actorName(actor) {
@@ -894,7 +927,7 @@ function toast(message) {
 
 function showError(error) {
   console.error(error);
-  toast(error.message || "發生錯誤");
+  toast(error.message || "操作失敗");
 }
 
 function escapeHtml(value) {

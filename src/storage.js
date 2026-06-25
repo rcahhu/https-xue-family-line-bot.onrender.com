@@ -117,6 +117,16 @@ export class TripStore {
     });
   }
 
+  async deleteTrip(id, actor = {}) {
+    return this.mutate((db) => {
+      const index = db.trips.findIndex((item) => item.id === id);
+      if (index === -1) throw new HttpError(404, "找不到這本旅行日記");
+      requireMember(db.trips[index], actor);
+      db.trips.splice(index, 1);
+      return { ok: true };
+    });
+  }
+
   async joinTrip(id, { inviteToken, actor, sourceKey }) {
     return this.mutate((db) => {
       const trip = findTrip(db, id);
@@ -380,6 +390,7 @@ function normalizeItineraryItem(item = {}) {
     price: normalizePrice(item.price),
     currency: cleanText(item.currency || "TWD") || "TWD",
     transportMode: cleanText(item.transportMode),
+    transportSummary: cleanText(item.transportSummary),
     transportName: cleanText(item.transportName),
     transportNumber: cleanText(item.transportNumber),
     fromPlace: cleanText(item.fromPlace),
@@ -387,6 +398,7 @@ function normalizeItineraryItem(item = {}) {
     boardingPlace: cleanText(item.boardingPlace),
     duration: cleanText(item.duration),
     lodgingName: cleanText(item.lodgingName),
+    lodgingSummary: cleanText(item.lodgingSummary),
     lodgingAddress: cleanText(item.lodgingAddress),
     checkInDate: cleanText(item.checkInDate),
     checkOutDate: cleanText(item.checkOutDate),
