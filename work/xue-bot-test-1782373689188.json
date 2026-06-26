@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "trips": [
+    {
+      "id": "trip_4957d42ddf33d98e",
+      "title": "宜蘭",
+      "area": "宜蘭",
+      "inviteToken": "invite_8546c53c3e221742",
+      "createdAt": "2026-06-25T07:48:09.433Z",
+      "updatedAt": "2026-06-25T07:48:09.447Z",
+      "owner": {
+        "lineUserId": "tester",
+        "displayName": "測試旅伴"
+      },
+      "sourceKeys": [],
+      "members": [
+        {
+          "lineUserId": "tester",
+          "displayName": "測試旅伴",
+          "role": "owner",
+          "joinedAt": "2026-06-25T07:48:09.433Z"
+        }
+      ],
+      "itinerary": [
+        {
+          "id": "item_6cbe7b8641d6b04d",
+          "title": "羅東夜市",
+          "place": "羅東",
+          "date": "",
+          "time": "",
+          "note": "",
+          "ticketStatus": "none",
+          "reservationStatus": "none",
+          "price": 500,
+          "currency": "TWD",
+          "createdAt": "2026-06-25T07:48:09.440Z",
+          "updatedAt": "2026-06-25T07:48:09.440Z"
+        }
+      ],
+      "wishes": [
+        {
+          "id": "wish_335cb2df9631415a",
+          "type": "food",
+          "text": "想吃蔥油餅",
+          "status": "open",
+          "author": {
+            "lineUserId": "tester",
+            "displayName": "測試旅伴"
+          },
+          "createdAt": "2026-06-25T07:48:09.447Z",
+          "updatedAt": "2026-06-25T07:48:09.447Z"
+        }
+      ]
+    }
+  ]
+}
