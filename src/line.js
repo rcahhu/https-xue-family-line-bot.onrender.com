@@ -311,7 +311,8 @@ function tripBubble(config, trip, label) {
       contents: [
         infoRow("地區", trip.area),
         infoRow("行程", `${trip.itinerary.length} 筆`),
-        infoRow("同伴", `${trip.members.length} 位`),
+        infoRow("同行人數", trip.peopleCount || "未填"),
+        infoRow("編輯成員", `${trip.members.length} 位`),
         infoRow("最後修改", formatDateTime(trip.updatedAt))
       ]
     },
@@ -325,9 +326,9 @@ function tripBubble(config, trip, label) {
           label: "打開日記",
           uri: tripUrl(config, trip)
         }),
-        button("邀請同伴", {
+        button("邀請成員", {
           type: "uri",
-          label: "邀請同伴",
+          label: "邀請成員",
           uri: tripUrl(config, trip)
         }, "secondary")
       ]

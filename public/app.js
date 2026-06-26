@@ -510,8 +510,9 @@ function renderStats() {
     stat("待辦缺口", `${openTodoCount} 個`),
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
-    stat("同伴", `${trip.members.length} 人`),
-    stat("同伴名單", memberNames),
+    stat("同行人數", trip.peopleCount || "未填"),
+    stat("編輯成員", `${trip.members.length} 位`),
+    stat("成員名單", memberNames),
     stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
 }
@@ -537,7 +538,8 @@ function renderNewDiaryCoverPreview() {
 
 function tripMeta(trip) {
   const dates = trip.startDate || trip.endDate ? `${trip.startDate || "未定"} 到 ${trip.endDate || "未定"}` : trip.area;
-  return `${dates} · ${trip.itinerary.length} 筆行程 · ${trip.members.length} 位同伴`;
+  const people = trip.peopleCount ? `同行 ${trip.peopleCount}` : "同行人數未填";
+  return `${dates} · ${trip.itinerary.length} 筆行程 · ${people} · 編輯成員 ${trip.members.length} 位`;
 }
 
 function renderItinerary() {
@@ -885,7 +887,7 @@ function renderMembers() {
   const trip = state.currentTrip;
   els.membersPanel.innerHTML = `
     <div class="member-summary">
-      <strong>同伴 ${trip.members.length} 人</strong>
+      <strong>編輯成員 ${trip.members.length} 位</strong>
       <span>${escapeHtml(trip.members.map((member) => member.displayName).join("、"))}</span>
     </div>
     <div class="member-list">
@@ -897,7 +899,7 @@ function renderMembers() {
                 <strong>${escapeHtml(member.displayName)}</strong>
                 <small>加入：${formatDateTime(member.joinedAt)}</small>
               </div>
-              <span class="muted">${member.role === "owner" ? "建立者" : "同伴"}</span>
+              <span class="muted">${member.role === "owner" ? "建立者" : "協作者"}</span>
             </article>
           `
         )
