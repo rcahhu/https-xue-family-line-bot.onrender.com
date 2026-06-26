@@ -87,6 +87,10 @@ async function handleWebhook(req, res) {
 async function handleApi(req, res, url) {
   const parts = url.pathname.split("/").filter(Boolean);
 
+  if (req.method === "POST" && url.pathname === "/api/uploads") {
+    return handleUpload(req, res);
+  }
+
   if (req.method === "GET" && url.pathname === "/api/config") {
     return sendJson(res, {
       appName: config.appName,
@@ -191,6 +195,20 @@ async function handleApi(req, res, url) {
   throw new HttpError(404, "Not found");
 }
 
+async function handleUpload(req, res) {
+  const upload = await readMultipartFile(req, 8 * 1024 * 1024);
+  if (!upload) throw new HttpError(400, "沒有收到照片檔案");
+  if (!upload.contentType.startsWith("image/")) {
+    throw new HttpError(400, "只能上傳圖片");
+  }
+
+  const uploadsDir = path.join(publicDir, "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
+  const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${extensionForMime(upload.contentType)}`;
+  await fs.writeFile(path.join(uploadsDir, filename), upload.data);
+  return sendJson(res, { url: `/uploads/${filename}` }, 201);
+}
+
 async function handleItineraryApi(req, res, tripId, parts) {
   if (req.method === "POST" && parts.length === 4) {
     const body = await readJson(req);
@@ -288,6 +306,45 @@ async function readJson(req) {
   return JSON.parse(body.toString("utf8"));
 }
 
+async function readMultipartFile(req, limit) {
+  const contentTypeHeader = req.headers["content-type"] || "";
+  const boundary = String(contentTypeHeader).match(/boundary=(?:"([^"]+)"|([^;]+))/i)?.[1] ||
+    String(contentTypeHeader).match(/boundary=(?:"([^"]+)"|([^;]+))/i)?.[2];
+  if (!boundary) throw new HttpError(400, "上傳格式不正確");
+
+  const body = await readBody(req, limit);
+  const boundaryBuffer = Buffer.from(`--${boundary}`);
+  const parts = splitBuffer(body, boundaryBuffer);
+
+  for (let part of parts) {
+    if (!part.length) continue;
+    if (part.subarray(0, 2).toString() === "\r\n") part = part.subarray(2);
+    if (part.subarray(0, 2).toString() === "--") continue;
+    const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
+    if (headerEnd === -1) continue;
+    const headerText = part.subarray(0, headerEnd).toString("utf8");
+    let data = part.subarray(headerEnd + 4);
+    if (data.subarray(-2).toString() === "\r\n") data = data.subarray(0, -2);
+    if (!/filename=/i.test(headerText)) continue;
+    const contentType = headerText.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || "application/octet-stream";
+    return { contentType, data };
+  }
+  return null;
+}
+
+function splitBuffer(buffer, delimiter) {
+  const parts = [];
+  let start = 0;
+  let index = buffer.indexOf(delimiter, start);
+  while (index !== -1) {
+    parts.push(buffer.subarray(start, index));
+    start = index + delimiter.length;
+    index = buffer.indexOf(delimiter, start);
+  }
+  parts.push(buffer.subarray(start));
+  return parts;
+}
+
 async function readBody(req, limit = 1024 * 1024) {
   const chunks = [];
   let size = 0;
@@ -349,9 +406,23 @@ function contentType(extname) {
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
     ".svg": "image/svg+xml"
   };
   return types[extname] || "application/octet-stream";
+}
+
+function extensionForMime(mimeType) {
+  const map = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp"
+  };
+  return map[mimeType.toLowerCase()] || ".jpg";
 }
 
 function loadEnvFile(filePath) {

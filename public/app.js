@@ -81,6 +81,7 @@ function bindEvents() {
     const area = els.tripAreaInput.value.trim() || title;
     if (!title) return;
 
+    const coverPhotoUrl = await uploadImageFile(els.tripCoverPhotoInput);
     const { trip } = await api("/api/trips", {
       method: "POST",
       body: {
@@ -89,7 +90,7 @@ function bindEvents() {
         startDate: els.tripStartDateInput.value,
         endDate: els.tripEndDateInput.value,
         note: els.tripNoteInput.value.trim(),
-        coverPhotoUrl: els.tripCoverPhotoInput.value.trim(),
+        coverPhotoUrl,
         actor: state.user
       }
     });
@@ -102,7 +103,7 @@ function bindEvents() {
     toast(`已建立「${trip.title}」`);
   });
 
-  els.tripCoverPhotoInput.addEventListener("input", renderNewDiaryCoverPreview);
+  els.tripCoverPhotoInput.addEventListener("change", renderNewDiaryCoverPreview);
 
   els.tripList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-trip-id]");
@@ -117,9 +118,10 @@ function bindEvents() {
       area: els.currentTripArea.value.trim(),
       peopleCount: els.currentTripPeople.value.trim(),
       stylePreference: els.currentTripStyle.value.trim(),
-      lodgingPreference: els.currentTripLodging.value.trim(),
-      coverPhotoUrl: els.currentTripCoverPhoto.value.trim()
+      lodgingPreference: els.currentTripLodging.value.trim()
     };
+    const coverPhotoUrl = await uploadImageFile(els.currentTripCoverPhoto);
+    if (coverPhotoUrl) patch.coverPhotoUrl = coverPhotoUrl;
     await api(`/api/trips/${state.currentTrip.id}`, {
       method: "PATCH",
       body: { actor: state.user, patch }
@@ -171,7 +173,7 @@ function bindEvents() {
   els.itineraryPanel.addEventListener("submit", async (event) => {
     if (event.target.matches(".item-form")) {
       event.preventDefault();
-      const item = formObject(event.target);
+      const item = await formObject(event.target);
       await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
         method: "POST",
         body: { actor: state.user, item }
@@ -186,7 +188,7 @@ function bindEvents() {
     if (event.target.matches(".item-edit-form")) {
       event.preventDefault();
       const itemId = event.target.dataset.itemId;
-      const patch = formObject(event.target);
+      const patch = await formObject(event.target);
       await api(`/api/trips/${state.currentTrip.id}/itinerary/${itemId}`, {
         method: "PATCH",
         body: { actor: state.user, patch }
@@ -222,7 +224,7 @@ function bindEvents() {
   els.todosPanel.addEventListener("submit", async (event) => {
     if (!event.target.matches(".todo-form")) return;
     event.preventDefault();
-    const todo = formObject(event.target);
+    const todo = await formObject(event.target);
     await api(`/api/trips/${state.currentTrip.id}/todos`, {
       method: "POST",
       body: { actor: state.user, todo }
@@ -260,7 +262,7 @@ function bindEvents() {
   els.wishesPanel.addEventListener("submit", async (event) => {
     if (!event.target.matches(".wish-form")) return;
     event.preventDefault();
-    const wish = formObject(event.target);
+    const wish = await formObject(event.target);
     await api(`/api/trips/${state.currentTrip.id}/wishes`, {
       method: "POST",
       body: { actor: state.user, wish }
@@ -459,7 +461,7 @@ function render() {
   els.currentTripPeople.value = state.currentTrip.peopleCount || "";
   els.currentTripStyle.value = state.currentTrip.stylePreference || "";
   els.currentTripLodging.value = state.currentTrip.lodgingPreference || "";
-  els.currentTripCoverPhoto.value = state.currentTrip.coverPhotoUrl || "";
+  els.currentTripCoverPhoto.value = "";
   els.tripHeroTitle.textContent = state.currentTrip.title;
   els.tripHeroMeta.textContent = tripMeta(state.currentTrip);
   renderCoverPhoto();
@@ -525,10 +527,11 @@ function renderCoverPhoto() {
 function renderNewDiaryCoverPreview() {
   const hero = document.querySelector(".new-diary-hero");
   if (!hero) return;
-  const url = els.tripCoverPhotoInput.value.trim();
+  const file = els.tripCoverPhotoInput.files?.[0];
+  const url = file ? URL.createObjectURL(file) : "";
   hero.classList.toggle("has-cover-photo", Boolean(url));
   hero.style.backgroundImage = url
-    ? `linear-gradient(180deg, rgba(29, 72, 55, 0.16), rgba(29, 72, 55, 0.72)), url("${cssUrl(url)}")`
+    ? `linear-gradient(180deg, rgba(29, 72, 55, 0.16), rgba(29, 72, 55, 0.72)), url("${url}")`
     : "";
 }
 
@@ -636,8 +639,9 @@ function itineraryFields(item = {}) {
       <input name="place" autocomplete="off" placeholder="宜蘭、羅東、台北車站" value="${escapeAttr(item.place || "")}" />
     </label>
     <label class="wide">
-      照片網址
-      <textarea name="photoUrlsText" placeholder="每行一張照片網址">${escapeHtml((item.photoUrls || []).join("\n"))}</textarea>
+      行程照片
+      <input name="photoFiles" type="file" accept="image/*" multiple />
+      <input type="hidden" name="existingPhotoUrls" value="${escapeAttr((item.photoUrls || []).join("\n"))}" />
     </label>
 
     <section class="type-fields full" data-type-fields="transport">
@@ -949,6 +953,39 @@ function inviteUrl(trip) {
   return `${baseUrl}/app?${params}`;
 }
 
+async function uploadImageFile(input) {
+  const file = input?.files?.[0];
+  if (!file) return "";
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch("/api/uploads", {
+    method: "POST",
+    body: formData
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "照片上傳失敗");
+  input.value = "";
+  return data.url;
+}
+
+async function uploadImageFiles(input) {
+  const files = Array.from(input?.files || []);
+  const urls = [];
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/uploads", {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "照片上傳失敗");
+    urls.push(data.url);
+  }
+  if (input) input.value = "";
+  return urls;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     method: options.method || "GET",
@@ -962,14 +999,18 @@ async function api(path, options = {}) {
   return data;
 }
 
-function formObject(form) {
+async function formObject(form) {
   const value = Object.fromEntries(new FormData(form).entries());
-  if (value.photoUrlsText !== undefined) {
-    value.photoUrls = value.photoUrlsText
+  const photoFileInput = form.querySelector("input[name='photoFiles']");
+  if (photoFileInput) {
+    const existing = String(value.existingPhotoUrls || "")
       .split(/[\s,，\n]+/)
       .map((url) => url.trim())
       .filter(Boolean);
-    delete value.photoUrlsText;
+    const uploaded = await uploadImageFiles(photoFileInput);
+    value.photoUrls = [...existing, ...uploaded];
+    delete value.photoFiles;
+    delete value.existingPhotoUrls;
   }
   return value;
 }

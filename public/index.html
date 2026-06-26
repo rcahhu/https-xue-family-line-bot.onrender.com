@@ -43,8 +43,8 @@
                 <p>這裡是日記封面，先放照片，再填基本資料。</p>
               </div>
               <label class="cover-photo-field">
-                封面照片網址
-                <input id="tripCoverPhotoInput" name="coverPhotoUrl" autocomplete="off" placeholder="https://..." />
+                封面照片
+                <input id="tripCoverPhotoInput" name="coverPhotoFile" type="file" accept="image/*" />
               </label>
             </section>
 
@@ -115,7 +115,7 @@
                 </label>
                 <label>
                   封面照片
-                  <input id="currentTripCoverPhoto" name="coverPhotoUrl" placeholder="https://..." />
+                  <input id="currentTripCoverPhoto" name="coverPhotoFile" type="file" accept="image/*" />
                 </label>
                 <button class="compact-button" type="submit">儲存</button>
               </form>
