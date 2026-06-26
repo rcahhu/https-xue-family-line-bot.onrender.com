@@ -63,6 +63,10 @@
                 備註
                 <textarea id="tripNoteInput" name="note" placeholder="例如：家庭旅遊、想泡湯、要找親子景點"></textarea>
               </label>
+              <label class="full">
+                封面照片網址
+                <input id="tripCoverPhotoInput" name="coverPhotoUrl" autocomplete="off" placeholder="可以先空白，之後再放照片網址" />
+              </label>
               <div class="new-diary-actions">
                 <a class="plain-link" href="/app">返回我的日記</a>
                 <button class="primary-button" type="submit">建立旅遊日記</button>
@@ -95,6 +99,22 @@
                   地區
                   <input id="currentTripArea" name="area" required />
                 </label>
+                <label>
+                  人數
+                  <input id="currentTripPeople" name="peopleCount" placeholder="例如：4人" />
+                </label>
+                <label>
+                  旅行風格
+                  <input id="currentTripStyle" name="stylePreference" placeholder="例如：美食、海邊、慢活" />
+                </label>
+                <label>
+                  住宿偏好
+                  <input id="currentTripLodging" name="lodgingPreference" placeholder="例如：含早餐、近車站" />
+                </label>
+                <label>
+                  封面照片
+                  <input id="currentTripCoverPhoto" name="coverPhotoUrl" placeholder="https://..." />
+                </label>
                 <button class="compact-button" type="submit">儲存</button>
               </form>
               <div class="trip-actions">
@@ -106,12 +126,14 @@
 
             <div class="tabs" role="tablist" aria-label="旅行日記分頁">
               <button class="tab is-active" type="button" data-tab="itinerary">行程</button>
+              <button class="tab" type="button" data-tab="todos">待辦</button>
               <button class="tab" type="button" data-tab="wishes">許願</button>
               <button class="tab" type="button" data-tab="recommendations">附近熱門</button>
               <button class="tab" type="button" data-tab="members">同伴</button>
             </div>
 
             <section id="itineraryPanel" class="panel" data-panel="itinerary"></section>
+            <section id="todosPanel" class="panel" data-panel="todos" hidden></section>
             <section id="wishesPanel" class="panel" data-panel="wishes" hidden></section>
             <section id="recommendationsPanel" class="panel" data-panel="recommendations" hidden></section>
             <section id="membersPanel" class="panel" data-panel="members" hidden></section>

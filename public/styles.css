@@ -440,6 +440,12 @@ h3 {
     radial-gradient(circle at 12% 28%, rgba(255, 255, 255, 0.46) 0 8%, transparent 9%),
     radial-gradient(circle at 78% 26%, rgba(244, 184, 71, 0.45) 0 12%, transparent 13%),
     linear-gradient(135deg, #8acfa9, #73a9ce 58%, #f4bd6a);
+  background-position: center;
+  background-size: cover;
+}
+
+.trip-hero.has-cover-photo {
+  min-height: 260px;
 }
 
 .trip-hero h2 {
@@ -473,7 +479,7 @@ h3 {
 }
 
 .trip-settings {
-  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) auto;
+  grid-template-columns: repeat(3, minmax(160px, 1fr)) auto;
   align-items: end;
   margin-top: 12px;
 }
@@ -723,6 +729,59 @@ h3 {
   margin-bottom: 10px;
 }
 
+.todo-row {
+  grid-template-columns: 18px minmax(220px, 1fr) 170px auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.todo-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--gold);
+}
+
+.todo-status-dot[data-status="done"],
+.todo-status-dot[data-status="not_needed"] {
+  background: var(--brand);
+}
+
+.todo-status-dot[data-status="need_ticket"],
+.todo-status-dot[data-status="need_reservation"],
+.todo-status-dot[data-status="need_hours"],
+.todo-status-dot[data-status="need_transport"] {
+  background: var(--coral);
+}
+
+.todo-form {
+  display: grid;
+  grid-template-columns: 150px 170px minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfdfb;
+}
+
+.photo-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+
+.photo-strip img {
+  flex: 0 0 92px;
+  width: 92px;
+  height: 68px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-soft);
+}
+
 .recommendation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -895,6 +954,7 @@ h3 {
   .item-form,
   .item-edit-form,
   .wish-form,
+  .todo-form,
   .new-diary-form,
   .stats,
   .field-grid,
@@ -941,6 +1001,15 @@ h3 {
 
   .wish-row {
     grid-template-columns: 1fr;
+  }
+
+  .todo-row {
+    grid-template-columns: 18px 1fr;
+  }
+
+  .todo-row select,
+  .todo-row .danger-button {
+    grid-column: 2;
   }
 }
 

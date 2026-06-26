@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { DEFAULT_OPENAI_MODEL } from "./ai.js";
 import { handleLineEvent } from "./line.js";
 import { getRecommendations } from "./recommendations.js";
 import { HttpError, normalizeActor, TripStore } from "./storage.js";
@@ -18,6 +19,11 @@ const config = {
   liffId: process.env.LIFF_ID || "",
   lineChannelSecret: process.env.LINE_CHANNEL_SECRET || "",
   lineChannelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN || "",
+  openaiApiKey: process.env.OPENAI_API_KEY || "",
+  openaiModel: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+  openaiEnableWebSearch: process.env.OPENAI_ENABLE_WEB_SEARCH !== "false",
+  openaiMaxOutputTokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 900),
+  openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS || 15000),
   dataFile: process.env.DATA_FILE || path.join(rootDir, "data", "trips.json")
 };
 
@@ -106,6 +112,10 @@ async function handleApi(req, res, url) {
       startDate: body.startDate || "",
       endDate: body.endDate || "",
       note: body.note || "",
+      peopleCount: body.peopleCount || "",
+      stylePreference: body.stylePreference || "",
+      lodgingPreference: body.lodgingPreference || "",
+      coverPhotoUrl: body.coverPhotoUrl || "",
       owner: actor,
       sourceKey: body.sourceKey || ""
     });
@@ -174,6 +184,10 @@ async function handleApi(req, res, url) {
     return handleWishesApi(req, res, tripId, parts);
   }
 
+  if (parts[3] === "todos") {
+    return handleTodosApi(req, res, tripId, parts);
+  }
+
   throw new HttpError(404, "Not found");
 }
 
@@ -220,6 +234,28 @@ async function handleWishesApi(req, res, tripId, parts) {
   if (req.method === "DELETE" && parts.length === 5) {
     const body = await readJson(req);
     const result = await store.deleteWish(tripId, parts[4], normalizeActor(body.actor));
+    return sendJson(res, result);
+  }
+
+  throw new HttpError(404, "Not found");
+}
+
+async function handleTodosApi(req, res, tripId, parts) {
+  if (req.method === "POST" && parts.length === 4) {
+    const body = await readJson(req);
+    const todo = await store.addTodoItem(tripId, body.todo || body, normalizeActor(body.actor));
+    return sendJson(res, { todo }, 201);
+  }
+
+  if (req.method === "PATCH" && parts.length === 5) {
+    const body = await readJson(req);
+    const todo = await store.updateTodoItem(tripId, parts[4], body.patch || body, normalizeActor(body.actor));
+    return sendJson(res, { todo });
+  }
+
+  if (req.method === "DELETE" && parts.length === 5) {
+    const body = await readJson(req);
+    const result = await store.deleteTodoItem(tripId, parts[4], normalizeActor(body.actor));
     return sendJson(res, result);
   }
 

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 const emptyDatabase = {
-  version: 2,
+  version: 3,
   trips: []
 };
 
@@ -74,7 +74,20 @@ export class TripStore {
     return trip;
   }
 
-  async createTrip({ title, area, startDate, endDate, note, owner, sourceKey }) {
+  async createTrip({
+    title,
+    area,
+    startDate,
+    endDate,
+    note,
+    peopleCount,
+    stylePreference,
+    lodgingPreference,
+    coverPhotoUrl,
+    planning,
+    owner,
+    sourceKey
+  }) {
     return this.mutate((db) => {
       const now = new Date().toISOString();
       const actor = normalizeActor(owner);
@@ -85,6 +98,11 @@ export class TripStore {
         startDate: cleanText(startDate),
         endDate: cleanText(endDate),
         note: cleanText(note),
+        peopleCount: cleanText(peopleCount),
+        stylePreference: cleanText(stylePreference),
+        lodgingPreference: cleanText(lodgingPreference),
+        coverPhotoUrl: normalizePhotoUrl(coverPhotoUrl),
+        planning: normalizePlanning(planning),
         inviteToken: createId("invite"),
         createdAt: now,
         updatedAt: now,
@@ -100,6 +118,7 @@ export class TripStore {
           }
         ],
         itinerary: [],
+        todos: [],
         wishes: []
       };
       db.trips.push(trip);
@@ -118,6 +137,16 @@ export class TripStore {
       if (patch.startDate !== undefined) trip.startDate = cleanText(patch.startDate);
       if (patch.endDate !== undefined) trip.endDate = cleanText(patch.endDate);
       if (patch.note !== undefined) trip.note = cleanText(patch.note);
+      if (patch.peopleCount !== undefined) trip.peopleCount = cleanText(patch.peopleCount);
+      if (patch.stylePreference !== undefined) trip.stylePreference = cleanText(patch.stylePreference);
+      if (patch.lodgingPreference !== undefined) trip.lodgingPreference = cleanText(patch.lodgingPreference);
+      if (patch.coverPhotoUrl !== undefined) trip.coverPhotoUrl = normalizePhotoUrl(patch.coverPhotoUrl);
+      if (patch.planning !== undefined) {
+        trip.planning = normalizePlanning({
+          ...trip.planning,
+          ...patch.planning
+        });
+      }
       touch(trip, normalizedActor);
       return trip;
     });
@@ -221,6 +250,106 @@ export class TripStore {
     });
   }
 
+  async addTodoItem(id, todo, actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      const now = new Date().toISOString();
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
+      const createdTodo = normalizeTodoItem({
+        ...todo,
+        id: createId("todo"),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: normalizedActor,
+        updatedBy: normalizedActor
+      });
+      if (!createdTodo.title) throw new HttpError(400, "待辦內容不能空白");
+      trip.todos.unshift(createdTodo);
+      touch(trip, normalizedActor);
+      return createdTodo;
+    });
+  }
+
+  async upsertTodoItem(id, todo, actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
+      const normalized = normalizeTodoItem({
+        ...todo,
+        createdBy: normalizedActor,
+        updatedBy: normalizedActor
+      });
+      if (!normalized.title) throw new HttpError(400, "待辦內容不能空白");
+      const existing = trip.todos.find((entry) => todoKey(entry) === todoKey(normalized));
+      if (existing) {
+        Object.assign(existing, {
+          ...existing,
+          ...normalized,
+          id: existing.id,
+          createdAt: existing.createdAt,
+          createdBy: existing.createdBy,
+          updatedAt: new Date().toISOString(),
+          updatedBy: normalizedActor
+        });
+        touch(trip, normalizedActor);
+        return existing;
+      }
+      const now = new Date().toISOString();
+      const createdTodo = normalizeTodoItem({
+        ...normalized,
+        id: createId("todo"),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: normalizedActor,
+        updatedBy: normalizedActor
+      });
+      trip.todos.unshift(createdTodo);
+      touch(trip, normalizedActor);
+      return createdTodo;
+    });
+  }
+
+  async updateTodoItem(id, todoId, patch, actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      const todo = trip.todos.find((entry) => entry.id === todoId);
+      if (!todo) throw new HttpError(404, "找不到這個待辦");
+      const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
+      Object.assign(
+        todo,
+        normalizeTodoItem({
+          ...todo,
+          ...patch,
+          id: todo.id,
+          createdAt: todo.createdAt,
+          createdBy: todo.createdBy,
+          updatedAt: new Date().toISOString(),
+          updatedBy: normalizedActor
+        })
+      );
+      touch(trip, normalizedActor);
+      return todo;
+    });
+  }
+
+  async deleteTodoItem(id, todoId, actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      const before = trip.todos.length;
+      trip.todos = trip.todos.filter((entry) => entry.id !== todoId);
+      if (trip.todos.length === before) throw new HttpError(404, "找不到這個待辦");
+      touch(trip, normalizeActor(actor));
+      return { ok: true };
+    });
+  }
+
   async addWish(id, wish, actor = {}) {
     return this.mutate((db) => {
       const trip = findTrip(db, id);
@@ -306,6 +435,11 @@ function hydrateTrip(trip) {
   trip.startDate = cleanText(trip.startDate);
   trip.endDate = cleanText(trip.endDate);
   trip.note = cleanText(trip.note);
+  trip.peopleCount = cleanText(trip.peopleCount);
+  trip.stylePreference = cleanText(trip.stylePreference);
+  trip.lodgingPreference = cleanText(trip.lodgingPreference);
+  trip.coverPhotoUrl = normalizePhotoUrl(trip.coverPhotoUrl);
+  trip.planning = normalizePlanning(trip.planning);
   trip.members = Array.isArray(trip.members) ? trip.members.map(hydrateMember) : [];
   if (!trip.members.some((member) => member.lineUserId === trip.owner.lineUserId)) {
     trip.members.unshift({
@@ -317,6 +451,7 @@ function hydrateTrip(trip) {
   trip.itinerary = Array.isArray(trip.itinerary)
     ? trip.itinerary.map((item) => normalizeItineraryItem(item))
     : [];
+  trip.todos = Array.isArray(trip.todos) ? trip.todos.map(hydrateTodo) : [];
   trip.wishes = Array.isArray(trip.wishes) ? trip.wishes.map(hydrateWish) : [];
   return trip;
 }
@@ -342,6 +477,17 @@ function hydrateWish(wish) {
     createdAt: wish.createdAt || new Date().toISOString(),
     updatedAt: wish.updatedAt || wish.createdAt || new Date().toISOString()
   };
+}
+
+function hydrateTodo(todo) {
+  const createdBy = normalizeActor(todo.createdBy || { displayName: "旅伴" });
+  return normalizeTodoItem({
+    ...todo,
+    createdBy,
+    updatedBy: normalizeActor(todo.updatedBy || createdBy),
+    createdAt: todo.createdAt || new Date().toISOString(),
+    updatedAt: todo.updatedAt || todo.createdAt || new Date().toISOString()
+  });
 }
 
 function canSeeTrip(trip, { userId, sourceKey } = {}) {
@@ -394,6 +540,9 @@ function normalizeItineraryItem(item = {}) {
     endDate: cleanText(item.endDate),
     endTime: cleanText(item.endTime),
     note: cleanText(item.note),
+    day: cleanText(item.day),
+    area: cleanText(item.area),
+    photoUrls: normalizePhotoUrls(item.photoUrls),
     ticketStatus: normalizeStatus(item.ticketStatus),
     reservationStatus: normalizeStatus(item.reservationStatus),
     price: normalizePrice(item.price),
@@ -420,6 +569,23 @@ function normalizeItineraryItem(item = {}) {
   };
 }
 
+function normalizeTodoItem(todo = {}) {
+  const createdBy = normalizeActor(todo.createdBy || { displayName: "旅伴" });
+  return {
+    id: todo.id,
+    title: cleanText(todo.title),
+    category: normalizeTodoCategory(todo.category),
+    status: normalizeTodoStatus(todo.status),
+    relatedItemId: cleanText(todo.relatedItemId),
+    relatedTitle: cleanText(todo.relatedTitle),
+    note: cleanText(todo.note),
+    createdBy,
+    updatedBy: normalizeActor(todo.updatedBy || createdBy),
+    createdAt: todo.createdAt || new Date().toISOString(),
+    updatedAt: todo.updatedAt || todo.createdAt || new Date().toISOString()
+  };
+}
+
 function normalizeItineraryType(value) {
   const allowed = new Set(["activity", "transport", "lodging"]);
   return allowed.has(value) ? value : "activity";
@@ -428,6 +594,36 @@ function normalizeItineraryType(value) {
 function normalizeStatus(value) {
   const allowed = new Set(["none", "needed", "done"]);
   return allowed.has(value) ? value : "none";
+}
+
+function normalizeTodoCategory(value) {
+  const allowed = new Set([
+    "flight",
+    "lodging",
+    "ticket",
+    "reservation",
+    "hours",
+    "transport",
+    "insurance",
+    "esim",
+    "packing",
+    "other"
+  ]);
+  return allowed.has(value) ? value : "other";
+}
+
+function normalizeTodoStatus(value) {
+  const allowed = new Set([
+    "todo",
+    "done",
+    "not_needed",
+    "confirm",
+    "need_ticket",
+    "need_reservation",
+    "need_hours",
+    "need_transport"
+  ]);
+  return allowed.has(value) ? value : "todo";
 }
 
 function normalizeBreakfast(value) {
@@ -460,7 +656,9 @@ function sortItinerary(trip) {
 }
 
 function scheduleDate(item) {
-  return item.date || item.checkInDate || item.createdAt?.slice(0, 10) || "";
+  if (item.date || item.checkInDate) return item.date || item.checkInDate;
+  if (item.day) return `0000-00-${String(item.day).padStart(2, "0")}`;
+  return item.createdAt?.slice(0, 10) || "";
 }
 
 function touch(trip, actor = {}) {
@@ -470,6 +668,43 @@ function touch(trip, actor = {}) {
 
 function cleanText(value) {
   return String(value ?? "").trim().slice(0, 2000);
+}
+
+function normalizePlanning(value = {}) {
+  const recommendedPlaces = Array.isArray(value.recommendedPlaces) ? value.recommendedPlaces : [];
+  const rejectedPlaces = Array.isArray(value.rejectedPlaces) ? value.rejectedPlaces : [];
+  const discussedAreas = Array.isArray(value.discussedAreas) ? value.discussedAreas : [];
+  return {
+    phase: cleanText(value.phase || "planning"),
+    currentArea: cleanText(value.currentArea),
+    lastQuestion: cleanText(value.lastQuestion),
+    recommendedPlaces: uniqueClean(recommendedPlaces),
+    rejectedPlaces: uniqueClean(rejectedPlaces),
+    discussedAreas: uniqueClean(discussedAreas)
+  };
+}
+
+function uniqueClean(values) {
+  return Array.from(new Set(values.map(cleanText).filter(Boolean))).slice(0, 120);
+}
+
+function normalizePhotoUrl(value) {
+  const url = cleanText(value);
+  if (!/^https?:\/\//i.test(url)) return "";
+  return url;
+}
+
+function normalizePhotoUrls(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/[\s,，\n]+/)
+        .filter(Boolean);
+  return uniqueClean(values).filter((url) => /^https?:\/\//i.test(url)).slice(0, 12);
+}
+
+function todoKey(todo) {
+  return `${normalizeTodoCategory(todo.category)}:${cleanText(todo.relatedTitle || todo.title).toLowerCase()}`;
 }
 
 function createId(prefix) {

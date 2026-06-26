@@ -21,17 +21,24 @@ const els = {
   tripStartDateInput: document.querySelector("#tripStartDateInput"),
   tripEndDateInput: document.querySelector("#tripEndDateInput"),
   tripNoteInput: document.querySelector("#tripNoteInput"),
+  tripCoverPhotoInput: document.querySelector("#tripCoverPhotoInput"),
   tripList: document.querySelector("#tripList"),
   emptyState: document.querySelector("#emptyState"),
   tripView: document.querySelector("#tripView"),
   tripSettingsForm: document.querySelector("#tripSettingsForm"),
   currentTripTitle: document.querySelector("#currentTripTitle"),
   currentTripArea: document.querySelector("#currentTripArea"),
+  currentTripPeople: document.querySelector("#currentTripPeople"),
+  currentTripStyle: document.querySelector("#currentTripStyle"),
+  currentTripLodging: document.querySelector("#currentTripLodging"),
+  currentTripCoverPhoto: document.querySelector("#currentTripCoverPhoto"),
   tripHeroTitle: document.querySelector("#tripHeroTitle"),
   tripHeroMeta: document.querySelector("#tripHeroMeta"),
+  tripHero: document.querySelector(".trip-hero"),
   tripStats: document.querySelector("#tripStats"),
   tabs: document.querySelector(".tabs"),
   itineraryPanel: document.querySelector("#itineraryPanel"),
+  todosPanel: document.querySelector("#todosPanel"),
   wishesPanel: document.querySelector("#wishesPanel"),
   recommendationsPanel: document.querySelector("#recommendationsPanel"),
   membersPanel: document.querySelector("#membersPanel"),
@@ -82,6 +89,7 @@ function bindEvents() {
         startDate: els.tripStartDateInput.value,
         endDate: els.tripEndDateInput.value,
         note: els.tripNoteInput.value.trim(),
+        coverPhotoUrl: els.tripCoverPhotoInput.value.trim(),
         actor: state.user
       }
     });
@@ -103,7 +111,11 @@ function bindEvents() {
     event.preventDefault();
     const patch = {
       title: els.currentTripTitle.value.trim(),
-      area: els.currentTripArea.value.trim()
+      area: els.currentTripArea.value.trim(),
+      peopleCount: els.currentTripPeople.value.trim(),
+      stylePreference: els.currentTripStyle.value.trim(),
+      lodgingPreference: els.currentTripLodging.value.trim(),
+      coverPhotoUrl: els.currentTripCoverPhoto.value.trim()
     };
     await api(`/api/trips/${state.currentTrip.id}`, {
       method: "PATCH",
@@ -202,6 +214,44 @@ function bindEvents() {
     });
     await refreshCurrentTrip();
     toast("行程已刪除");
+  });
+
+  els.todosPanel.addEventListener("submit", async (event) => {
+    if (!event.target.matches(".todo-form")) return;
+    event.preventDefault();
+    const todo = formObject(event.target);
+    await api(`/api/trips/${state.currentTrip.id}/todos`, {
+      method: "POST",
+      body: { actor: state.user, todo }
+    });
+    event.target.reset();
+    await refreshCurrentTrip();
+    toast("待辦已新增");
+  });
+
+  els.todosPanel.addEventListener("change", async (event) => {
+    const target = event.target.closest("[data-todo-field]");
+    if (!target) return;
+    await api(`/api/trips/${state.currentTrip.id}/todos/${target.dataset.todoId}`, {
+      method: "PATCH",
+      body: {
+        actor: state.user,
+        patch: { [target.dataset.todoField]: target.value }
+      }
+    });
+    await refreshCurrentTrip();
+  });
+
+  els.todosPanel.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-todo]");
+    if (!button) return;
+    if (!window.confirm("確定刪除這個待辦嗎？")) return;
+    await api(`/api/trips/${state.currentTrip.id}/todos/${button.dataset.deleteTodo}`, {
+      method: "DELETE",
+      body: { actor: state.user }
+    });
+    await refreshCurrentTrip();
+    toast("待辦已刪除");
   });
 
   els.wishesPanel.addEventListener("submit", async (event) => {
@@ -403,10 +453,16 @@ function render() {
 
   els.currentTripTitle.value = state.currentTrip.title;
   els.currentTripArea.value = state.currentTrip.area;
+  els.currentTripPeople.value = state.currentTrip.peopleCount || "";
+  els.currentTripStyle.value = state.currentTrip.stylePreference || "";
+  els.currentTripLodging.value = state.currentTrip.lodgingPreference || "";
+  els.currentTripCoverPhoto.value = state.currentTrip.coverPhotoUrl || "";
   els.tripHeroTitle.textContent = state.currentTrip.title;
   els.tripHeroMeta.textContent = tripMeta(state.currentTrip);
+  renderCoverPhoto();
   renderStats();
   renderItinerary();
+  renderTodos();
   renderWishes();
   renderRecommendations();
   renderMembers();
@@ -441,16 +497,26 @@ function renderStats() {
   const budget = trip.itinerary.reduce((sum, item) => sum + Number(item.price || 0), 0);
   const transportCount = trip.itinerary.filter((item) => item.type === "transport").length;
   const lodgingCount = trip.itinerary.filter((item) => item.type === "lodging").length;
+  const openTodoCount = trip.todos.filter((todo) => !["done", "not_needed"].includes(todo.status)).length;
   const memberNames = trip.members.map((member) => member.displayName).join("、") || "尚未加入";
   els.tripStats.innerHTML = [
     stat("總預估花費", money(budget)),
     stat("行程", `${trip.itinerary.length} 筆`),
+    stat("待辦缺口", `${openTodoCount} 個`),
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
     stat("同伴", `${trip.members.length} 人`),
     stat("同伴名單", memberNames),
     stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
+}
+
+function renderCoverPhoto() {
+  const url = state.currentTrip?.coverPhotoUrl || "";
+  els.tripHero.classList.toggle("has-cover-photo", Boolean(url));
+  els.tripHero.style.backgroundImage = url
+    ? `linear-gradient(180deg, rgba(29, 72, 55, 0.1), rgba(29, 72, 55, 0.72)), url("${cssUrl(url)}")`
+    : "";
 }
 
 function tripMeta(trip) {
@@ -475,6 +541,54 @@ function renderItinerary() {
     <div class="row-list">${rows}</div>
   `;
   els.itineraryPanel.querySelectorAll(".item-form, .item-edit-form").forEach(syncTypeFields);
+}
+
+function renderTodos() {
+  const trip = state.currentTrip;
+  const rows = trip.todos.length
+    ? trip.todos.map((todo) => todoRow(todo)).join("")
+    : `<p class="muted">目前沒有待辦缺口。你在 LINE 裡說「膠囊列車還沒訂票」、「住宿已訂」、「eSIM 還沒處理」，AI 會自動放進這裡。</p>`;
+
+  els.todosPanel.innerHTML = `
+    <form class="todo-form">
+      <label>
+        分類
+        <select name="category">
+          ${todoCategoryOptions("other")}
+        </select>
+      </label>
+      <label>
+        狀態
+        <select name="status">
+          ${todoStatusOptions("todo")}
+        </select>
+      </label>
+      <label>
+        待辦
+        <input name="title" autocomplete="off" placeholder="膠囊列車訂票、烤肉店訂位、eSIM" required />
+      </label>
+      <button class="primary-button" type="submit">新增待辦</button>
+    </form>
+    <div class="row-list">${rows}</div>
+  `;
+}
+
+function todoRow(todo) {
+  return `
+    <article class="data-row todo-row">
+      <div class="todo-status-dot" data-status="${escapeAttr(todo.status)}"></div>
+      <div class="row-title">
+        <strong>${escapeHtml(todo.title)}</strong>
+        <small>${todoCategoryLabel(todo.category)} · ${todoStatusLabel(todo.status)}${todo.relatedTitle ? ` · ${escapeHtml(todo.relatedTitle)}` : ""}</small>
+        ${todo.note ? `<small>備註：${escapeHtml(todo.note)}</small>` : ""}
+        <small class="audit-line">${auditLine(todo)}</small>
+      </div>
+      <select data-todo-id="${escapeAttr(todo.id)}" data-todo-field="status" aria-label="待辦狀態">
+        ${todoStatusOptions(todo.status)}
+      </select>
+      <button class="danger-button" type="button" data-delete-todo="${escapeAttr(todo.id)}">刪除</button>
+    </article>
+  `;
 }
 
 function itineraryFields(item = {}) {
@@ -507,6 +621,10 @@ function itineraryFields(item = {}) {
     <label class="wide">
       地點
       <input name="place" autocomplete="off" placeholder="宜蘭、羅東、台北車站" value="${escapeAttr(item.place || "")}" />
+    </label>
+    <label class="wide">
+      照片網址
+      <textarea name="photoUrlsText" placeholder="每行一張照片網址">${escapeHtml((item.photoUrls || []).join("\n"))}</textarea>
     </label>
 
     <section class="type-fields full" data-type-fields="transport">
@@ -587,6 +705,7 @@ function itineraryRow(item) {
         </div>
         <small>${escapeHtml(formatWhen(item))}${item.place ? ` · ${escapeHtml(item.place)}` : ""}</small>
         ${itineraryDetail(item)}
+        ${photoStrip(item.photoUrls)}
         ${item.note ? `<small>備註：${escapeHtml(item.note)}</small>` : ""}
         <small class="audit-line">${auditLine(item)}</small>
       </div>
@@ -609,7 +728,7 @@ function itineraryRow(item) {
 function groupedItineraryRows(items) {
   const groups = new Map();
   for (const item of items) {
-    const key = item.date || item.checkInDate || "未定日期";
+    const key = item.date || item.checkInDate || (item.day ? `Day ${item.day}` : "未定日期");
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(item);
   }
@@ -831,7 +950,15 @@ async function api(path, options = {}) {
 }
 
 function formObject(form) {
-  return Object.fromEntries(new FormData(form).entries());
+  const value = Object.fromEntries(new FormData(form).entries());
+  if (value.photoUrlsText !== undefined) {
+    value.photoUrls = value.photoUrlsText
+      .split(/[\s,，\n]+/)
+      .map((url) => url.trim())
+      .filter(Boolean);
+    delete value.photoUrlsText;
+  }
+  return value;
 }
 
 function syncTypeFields(form) {
@@ -851,6 +978,36 @@ function statusOptions(kind, selected) {
     kind === "ticket"
       ? { none: "不用購票", needed: "要購票", done: "已購票" }
       : { none: "不用訂位", needed: "要訂位", done: "已訂位" };
+  return selectOptions(labels, selected);
+}
+
+function todoCategoryOptions(selected) {
+  const labels = {
+    flight: "機票",
+    lodging: "住宿",
+    ticket: "票券",
+    reservation: "訂位",
+    hours: "營業時間",
+    transport: "交通",
+    insurance: "旅平險",
+    esim: "eSIM",
+    packing: "行李",
+    other: "其他"
+  };
+  return selectOptions(labels, selected);
+}
+
+function todoStatusOptions(selected) {
+  const labels = {
+    todo: "未處理",
+    done: "已完成",
+    not_needed: "不用處理",
+    confirm: "待確認",
+    need_ticket: "未訂票",
+    need_reservation: "未訂位",
+    need_hours: "需查營業時間",
+    need_transport: "需查交通"
+  };
   return selectOptions(labels, selected);
 }
 
@@ -877,6 +1034,34 @@ function wishTypeLabel(type) {
   return { food: "想吃", spot: "想去", activity: "想玩", other: "其他" }[type] || "其他";
 }
 
+function todoCategoryLabel(value) {
+  return {
+    flight: "機票",
+    lodging: "住宿",
+    ticket: "票券",
+    reservation: "訂位",
+    hours: "營業時間",
+    transport: "交通",
+    insurance: "旅平險",
+    esim: "eSIM",
+    packing: "行李",
+    other: "其他"
+  }[value] || "其他";
+}
+
+function todoStatusLabel(value) {
+  return {
+    todo: "未處理",
+    done: "已完成",
+    not_needed: "不用處理",
+    confirm: "待確認",
+    need_ticket: "未訂票",
+    need_reservation: "未訂位",
+    need_hours: "需查營業時間",
+    need_transport: "需查交通"
+  }[value] || "未處理";
+}
+
 function itineraryTypeLabel(type) {
   return { activity: "行程", transport: "搭車", lodging: "住宿" }[type] || "行程";
 }
@@ -894,10 +1079,13 @@ function formatWhen(item) {
     return `${item.checkInDate || "未定入住"} 到 ${item.checkOutDate || "未定退房"}`;
   }
   const start = [item.date, item.time].filter(Boolean).join(" ");
-  return start || "未定時間";
+  if (start) return start;
+  if (item.day) return `Day ${item.day}`;
+  return "未定時間";
 }
 
 function formatGroupDate(value) {
+  if (String(value).startsWith("Day ")) return value;
   if (value === "未定日期") return value;
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return value;
@@ -931,6 +1119,18 @@ function actorName(actor) {
 
 function joinParts(parts, separator) {
   return parts.filter(Boolean).join(separator);
+}
+
+function photoStrip(photoUrls = []) {
+  if (!photoUrls.length) return "";
+  return `
+    <div class="photo-strip">
+      ${photoUrls
+        .slice(0, 4)
+        .map((url) => `<img src="${escapeAttr(url)}" alt="行程照片" loading="lazy" />`)
+        .join("")}
+    </div>
+  `;
 }
 
 function money(value, currency = "TWD") {
@@ -968,6 +1168,10 @@ function escapeHtml(value) {
 
 function escapeAttr(value) {
   return escapeHtml(value);
+}
+
+function cssUrl(value) {
+  return String(value || "").replace(/["\\]/g, "");
 }
 
 function cryptoRandom() {
