@@ -1,6 +1,11 @@
 const DATE_RANGE_RE =
   /(20\d{2})[/-](\d{1,2})[/-](\d{1,2})\s*[~–—-]\s*(?:(20\d{2})[/-])?(\d{1,2})[/-](\d{1,2})/u;
 
+const SECTION_TITLES = new Set(["行程總覽", "待檢查清單", "日記文字版"]);
+const TODO_STATUSES = ["已確認", "已訂購", "已訂位", "已完成", "待補", "待確認", "未確認", "未處理", "不用處理"];
+
+export const DIARY_IMPORT_VERSION = "2026-06-26-natural-text-v2";
+
 export function parseDiaryImport(message = "") {
   const raw = normalizeText(message);
   if (!looksLikeDiaryImport(raw)) return null;
@@ -12,6 +17,7 @@ export function parseDiaryImport(message = "") {
   const diaryNote = extractSection(raw, "日記文字版");
   const itineraryItems = parseItineraryItems(raw, dateRange.startDate);
   const todos = parseTodoTable(raw);
+  const peopleCount = inferPeopleCount(raw);
 
   return {
     createNew: /^生成日記本(?:\s|$)/u.test(raw) || /^#\s+/m.test(raw),
@@ -20,8 +26,8 @@ export function parseDiaryImport(message = "") {
       area,
       startDate: dateRange.startDate,
       endDate: dateRange.endDate,
-      note: diaryNote || "由 LINE 貼上的交通整理自動生成。",
-      peopleCount: inferPeopleCount(raw),
+      note: diaryNote || "由 LINE 貼上的行程整理自動生成。",
+      peopleCount,
       planning: {
         phase: "imported_diary",
         currentArea: area,
@@ -43,8 +49,8 @@ export function parseDiaryImport(message = "") {
         area,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
-        note: diaryNote || "由 LINE 貼上的交通整理自動生成。",
-        peopleCount: inferPeopleCount(raw)
+        note: diaryNote || "由 LINE 貼上的行程整理自動生成。",
+        peopleCount
       },
       itineraryItems,
       todos,
@@ -61,7 +67,7 @@ export function parseDiaryImport(message = "") {
 function looksLikeDiaryImport(text) {
   if (/^生成日記本(?:\s|$)/u.test(text)) return true;
   const hasDiaryHeading = /旅行日記|日記文字版|行程總覽|待檢查清單/u.test(text);
-  const hasStructuredTrip = /路線：|時間：|車次|上車地點：|下車地點：|報到時間：/u.test(text);
+  const hasStructuredTrip = /路線[:：]|時間[:：]|車次|上車地點[:：]|下車地點[:：]|報到時間[:：]/u.test(text);
   return hasDiaryHeading && hasStructuredTrip;
 }
 
@@ -73,7 +79,19 @@ function normalizeText(value) {
 }
 
 function findTitleLine(text) {
-  return text.match(/^#\s+(.+)$/m)?.[1]?.trim() || "";
+  const markdownTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  if (markdownTitle) return markdownTitle;
+
+  const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+  const startIndex = lines[0] === "生成日記本" ? 1 : 0;
+  for (const line of lines.slice(startIndex)) {
+    if (SECTION_TITLES.has(line)) continue;
+    if (/^\d{1,2}[/-]\d{1,2}/u.test(line)) continue;
+    if (/^(第一段|第二段|第三段|第四段|交通)[:：]/u.test(line)) continue;
+    if (/^(路線|時間|用途|車程|座位|人數|狀態|提醒)[:：]/u.test(line)) continue;
+    return line;
+  }
+  return "";
 }
 
 function parseDateRange(text) {
@@ -112,14 +130,20 @@ function splitArea(area) {
 }
 
 function inferPeopleCount(text) {
-  return text.match(/人數：\s*(\d+\s*人)/u)?.[1] || text.match(/共\s*(\d+)\s*張/u)?.[1]?.concat("人") || "";
+  return text.match(/人數[:：]\s*(\d+\s*人)/u)?.[1] || text.match(/共\s*(\d+)\s*張/u)?.[1]?.concat("人") || "";
 }
 
 function extractSection(text, sectionName) {
   const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, "u");
-  const section = text.match(regex)?.[1] || "";
-  return section
+  const markdown = text.match(new RegExp(`##\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n##\\s+|$)`, "u"))?.[1];
+  if (markdown) return cleanSection(markdown);
+
+  const plain = text.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\n([\\s\\S]*)$`, "u"))?.[1];
+  return cleanSection(plain || "");
+}
+
+function cleanSection(value) {
+  return String(value || "")
     .replace(/^[-–—]{3,}$/gm, "")
     .replace(/^#+\s*/gm, "")
     .trim();
@@ -142,39 +166,22 @@ function parseItineraryItems(text, fallbackStartDate) {
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || line === "---") continue;
+    if (/^(待檢查清單|日記文字版)$/u.test(line)) {
+      flush();
+      break;
+    }
 
-    const headingDate = line.match(/^#{2,3}\s*(\d{1,2})[/-](\d{1,2})/u);
+    const headingDate = line.match(/^(?:#{2,3}\s*)?(\d{1,2})[/-](\d{1,2})(?:\s*[｜|].*)?$/u);
     if (headingDate) {
+      flush();
       currentDate = formatDate(baseYear, headingDate[1], headingDate[2]);
       continue;
     }
 
-    const boldTitle = line.match(/^\*\*(.+?)\*\*/u)?.[1]?.trim();
-    if (boldTitle) {
-      const title = normalizeBlockTitle(boldTitle);
-      if (isTransportTitle(title)) {
-        flush();
-        current = {
-          type: "transport",
-          title,
-          date: currentDate,
-          time: "",
-          endTime: "",
-          area: "",
-          place: title,
-          transportMode: inferTransportMode(title),
-          transportName: title,
-          transportNumber: inferTransportNumber(title),
-          fromPlace: "",
-          toPlace: "",
-          boardingPlace: "",
-          duration: "",
-          ticketStatus: "none",
-          reservationStatus: "none",
-          price: 0,
-          note: ""
-        };
-      }
+    const title = extractTransportTitle(line);
+    if (title && isTransportTitle(title)) {
+      flush();
+      current = createTransportItem(title, currentDate);
       continue;
     }
 
@@ -186,12 +193,45 @@ function parseItineraryItems(text, fallbackStartDate) {
   return dedupeItems(items).slice(0, 30);
 }
 
+function extractTransportTitle(line) {
+  const boldTitle = line.match(/^\*\*(.+?)\*\*/u)?.[1]?.trim();
+  if (boldTitle) return normalizeBlockTitle(boldTitle);
+
+  const segmentTitle = line.match(/^(?:第一段|第二段|第三段|第四段|交通)[:：]\s*(.+)$/u)?.[1]?.trim();
+  if (segmentTitle) return normalizeBlockTitle(segmentTitle);
+
+  return "";
+}
+
 function normalizeBlockTitle(value) {
   return String(value || "")
-    .replace(/^第[一二三四五六七八九十]+段：/u, "")
-    .replace(/^交通：/u, "")
-    .replace(/：$/u, "")
+    .replace(/^第[一二三四五六七八九十]+段[:：]/u, "")
+    .replace(/^交通[:：]/u, "")
+    .replace(/[:：]$/u, "")
     .trim();
+}
+
+function createTransportItem(title, currentDate) {
+  return {
+    type: "transport",
+    title,
+    date: currentDate,
+    time: "",
+    endTime: "",
+    area: "",
+    place: title,
+    transportMode: inferTransportMode(title),
+    transportName: title,
+    transportNumber: inferTransportNumber(title),
+    fromPlace: "",
+    toPlace: "",
+    boardingPlace: "",
+    duration: "",
+    ticketStatus: "none",
+    reservationStatus: "none",
+    price: 0,
+    note: ""
+  };
 }
 
 function isTransportTitle(title) {
@@ -213,15 +253,18 @@ function inferTransportNumber(title) {
 }
 
 function applyDetailLine(item, line, baseYear) {
-  const [label, ...rest] = line.split("：");
-  const value = rest.join("：").trim();
-  if (!value) {
+  const colon = line.search(/[:：]/u);
+  if (colon === -1) {
     appendNote(item, line);
     return;
   }
 
+  const label = line.slice(0, colon).trim();
+  const value = line.slice(colon + 1).trim();
+  if (!value) return;
+
   if (label === "路線") {
-    const route = value.split(/\s*[→>到]\s*/u).map((part) => part.trim()).filter(Boolean);
+    const route = value.split(/\s*(?:→|->|到)\s*/u).map((part) => part.trim()).filter(Boolean);
     item.fromPlace = route[0] || item.fromPlace;
     item.toPlace = route[1] || item.toPlace;
     item.area = [item.fromPlace, item.toPlace].filter(Boolean).join(" → ");
@@ -233,7 +276,7 @@ function applyDetailLine(item, line, baseYear) {
     const times = value.match(/\d{1,2}:\d{2}/gu) || [];
     item.time = times[0] || item.time;
     item.endTime = times[1] || item.endTime;
-    const places = value.match(/([\u4e00-\u9fffA-Za-z0-9]+)\s*出發.*?([\u4e00-\u9fffA-Za-z0-9]+)\s*抵達/u);
+    const places = value.match(/([\u4e00-\u9fffA-Za-z0-9]+)\s*出發.*?抵達\s*([\u4e00-\u9fffA-Za-z0-9]+)/u);
     if (places) {
       item.fromPlace = item.fromPlace || places[1];
       item.toPlace = item.toPlace || places[2];
@@ -244,10 +287,6 @@ function applyDetailLine(item, line, baseYear) {
   if (label === "使用日期") {
     const date = value.match(/(20\d{2})[/-](\d{1,2})[/-](\d{1,2})/u);
     if (date) item.date = formatDate(date[1], date[2], date[3]);
-    else {
-      const short = value.match(/(\d{1,2})[/-](\d{1,2})/u);
-      if (short) item.date = formatDate(baseYear, short[1], short[2]);
-    }
     return;
   }
 
@@ -267,15 +306,17 @@ function applyDetailLine(item, line, baseYear) {
     return;
   }
 
-  if (label === "票價" || label === "合計") {
+  if (/票價|合計|金額/u.test(label)) {
     item.price = parseMoney(value) || item.price;
+    appendNote(item, `${label}：${value}`);
     return;
   }
 
   if (label === "狀態") {
     const status = normalizeItemStatus(value);
     item.ticketStatus = status;
-    if (/訂位/u.test(value)) item.reservationStatus = status;
+    if (/訂位|座位/u.test(value)) item.reservationStatus = status;
+    appendNote(item, `${label}：${value}`);
     return;
   }
 
@@ -286,17 +327,16 @@ function applyDetailLine(item, line, baseYear) {
     return;
   }
 
-  if (label === "座位" || label === "票種與金額" || label === "餐盒" || label === "行李限制" || label === "費用包含" || label === "用途" || label === "人數" || label === "提醒") {
-    appendNote(item, `${label}：${value}`);
-    return;
+  if (label === "座位" && /待補|未/u.test(value)) {
+    item.reservationStatus = "needed";
   }
 
-  appendNote(item, line);
+  appendNote(item, `${label}：${value}`);
 }
 
 function normalizeItemStatus(value) {
   if (/已確認|已訂購|已訂位|已完成/u.test(value)) return "done";
-  if (/需|未|待/u.test(value)) return "needed";
+  if (/待補|待確認|未/u.test(value)) return "needed";
   return "none";
 }
 
@@ -313,15 +353,17 @@ function finalizeTransportItem(item) {
 }
 
 function parseTodoTable(text) {
+  const section = extractBetween(text, "待檢查清單", "日記文字版");
   const rows = [];
-  for (const line of text.split("\n")) {
+
+  for (const line of section.split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("|") || /^\|\s*-+/u.test(trimmed)) continue;
-    const cells = trimmed
-      .split("|")
-      .map((cell) => cell.trim())
-      .filter(Boolean);
-    if (cells.length < 2 || cells[0] === "項目" || cells[0].includes("---")) continue;
+    if (!trimmed || trimmed === "待檢查清單") continue;
+    if (/^項目\s+狀態\s+備註/u.test(trimmed) || /^項目\|狀態/u.test(trimmed)) continue;
+    if (/^-+$|^\|\s*-+/u.test(trimmed)) continue;
+
+    const cells = splitTodoCells(trimmed);
+    if (cells.length < 2) continue;
     rows.push({
       title: cells[0],
       status: normalizeTodoStatus(cells[1]),
@@ -330,13 +372,40 @@ function parseTodoTable(text) {
       note: cells[2] || ""
     });
   }
+
   return rows.slice(0, 50);
+}
+
+function extractBetween(text, startTitle, endTitle) {
+  const start = text.indexOf(startTitle);
+  if (start === -1) return "";
+  const afterStart = text.slice(start + startTitle.length);
+  const end = afterStart.indexOf(endTitle);
+  return end === -1 ? afterStart : afterStart.slice(0, end);
+}
+
+function splitTodoCells(line) {
+  if (line.startsWith("|")) {
+    return line
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter(Boolean)
+      .filter((cell) => !/^---+$/.test(cell));
+  }
+  if (line.includes("\t")) {
+    return line.split(/\t+/u).map((cell) => cell.trim()).filter(Boolean);
+  }
+
+  const statusPattern = TODO_STATUSES.join("|");
+  const match = line.match(new RegExp(`^(.+?)\\s+(${statusPattern})(?:\\s+(.+))?$`, "u"));
+  if (!match) return [];
+  return [match[1], match[2], match[3] || ""].map((cell) => cell.trim()).filter(Boolean);
 }
 
 function normalizeTodoStatus(value) {
   if (/已確認|已訂購|已訂位|已完成/u.test(value)) return "done";
   if (/不用/u.test(value)) return "not_needed";
-  if (/待確認|待補|需查/u.test(value)) return "confirm";
+  if (/待確認|待補|未確認|需查/u.test(value)) return "confirm";
   return "todo";
 }
 

@@ -1,0 +1,121 @@
+{
+  "version": 3,
+  "trips": [
+    {
+      "id": "trip_bd82ab43cc981688",
+      "title": "2026/07/02–07/04 台北宜蘭小旅行",
+      "area": "台北、宜蘭",
+      "startDate": "2026-07-02",
+      "endDate": "2026-07-04",
+      "note": "這是測試旅行。",
+      "peopleCount": "",
+      "stylePreference": "",
+      "lodgingPreference": "",
+      "coverPhotoUrl": "",
+      "planning": {
+        "phase": "imported_diary",
+        "currentArea": "台北、宜蘭",
+        "lastQuestion": "",
+        "recommendedPlaces": [],
+        "rejectedPlaces": [],
+        "discussedAreas": [
+          "台北",
+          "宜蘭"
+        ]
+      },
+      "inviteToken": "invite_6539a43550980c53",
+      "createdAt": "2026-06-26T13:21:48.750Z",
+      "updatedAt": "2026-06-26T13:21:48.771Z",
+      "owner": {
+        "lineUserId": "Utest",
+        "displayName": "LINE 旅伴"
+      },
+      "createdBy": {
+        "lineUserId": "Utest",
+        "displayName": "LINE 旅伴"
+      },
+      "updatedBy": {
+        "lineUserId": "Utest",
+        "displayName": "LINE 旅伴"
+      },
+      "sourceKeys": [
+        "user:Utest"
+      ],
+      "members": [
+        {
+          "lineUserId": "Utest",
+          "displayName": "LINE 旅伴",
+          "role": "owner",
+          "joinedAt": "2026-06-26T13:21:48.750Z"
+        }
+      ],
+      "itinerary": [
+        {
+          "id": "item_625bd46b9aafd102",
+          "type": "transport",
+          "title": "台鐵區間車 3128 次",
+          "place": "科工館 → 新左營",
+          "date": "2026-07-02",
+          "time": "05:42",
+          "endDate": "",
+          "endTime": "06:04",
+          "note": "狀態：已確認",
+          "day": "",
+          "area": "科工館 → 新左營",
+          "photoUrls": [],
+          "ticketStatus": "done",
+          "reservationStatus": "none",
+          "price": 0,
+          "currency": "TWD",
+          "transportMode": "台鐵",
+          "transportSummary": "台鐵區間車 3128 次，3128 次，科工館 → 新左營，05:42–06:04",
+          "transportName": "台鐵區間車 3128 次",
+          "transportNumber": "3128",
+          "fromPlace": "科工館",
+          "toPlace": "新左營",
+          "boardingPlace": "",
+          "duration": "",
+          "lodgingName": "",
+          "lodgingSummary": "",
+          "lodgingAddress": "",
+          "checkInDate": "",
+          "checkOutDate": "",
+          "breakfast": "unknown",
+          "confirmationNumber": "",
+          "createdBy": {
+            "lineUserId": "Utest",
+            "displayName": "LINE 旅伴"
+          },
+          "updatedBy": {
+            "lineUserId": "Utest",
+            "displayName": "LINE 旅伴"
+          },
+          "createdAt": "2026-06-26T13:21:48.764Z",
+          "updatedAt": "2026-06-26T13:21:48.764Z"
+        }
+      ],
+      "todos": [
+        {
+          "id": "todo_16d6e9b1663652e8",
+          "title": "7/2 台鐵 3128",
+          "category": "transport",
+          "status": "done",
+          "relatedItemId": "",
+          "relatedTitle": "7/2 台鐵 3128",
+          "note": "科工館 05:42 → 新左營 06:04",
+          "createdBy": {
+            "lineUserId": "Utest",
+            "displayName": "LINE 旅伴"
+          },
+          "updatedBy": {
+            "lineUserId": "Utest",
+            "displayName": "LINE 旅伴"
+          },
+          "createdAt": "2026-06-26T13:21:48.771Z",
+          "updatedAt": "2026-06-26T13:21:48.771Z"
+        }
+      ],
+      "wishes": []
+    }
+  ]
+}

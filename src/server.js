@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DEFAULT_OPENAI_MODEL } from "./ai.js";
+import { DIARY_IMPORT_VERSION } from "./diaryImport.js";
 import { handleLineEvent } from "./line.js";
 import { getRecommendations } from "./recommendations.js";
 import { HttpError, normalizeActor, TripStore } from "./storage.js";
@@ -54,7 +55,7 @@ async function route(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/health") {
-    return sendJson(res, { ok: true, appName: config.appName });
+    return sendJson(res, { ok: true, appName: config.appName, diaryImportVersion: DIARY_IMPORT_VERSION });
   }
 
   if (req.method === "POST" && pathname === "/webhook") {

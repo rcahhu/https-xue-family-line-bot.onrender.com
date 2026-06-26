@@ -1,5 +1,5 @@
 import { createTravelAssistantReply, createTravelPlanningUpdate } from "./ai.js";
-import { parseDiaryImport } from "./diaryImport.js";
+import { DIARY_IMPORT_VERSION, parseDiaryImport } from "./diaryImport.js";
 import { getRecommendations } from "./recommendations.js";
 import { makeSourceKey, normalizeActor } from "./storage.js";
 
@@ -21,6 +21,12 @@ export async function handleLineEvent(event, { store, config }) {
   const text = event.message.text.trim();
   const sourceKey = makeSourceKey(event.source);
   const actor = actorFromEvent(event, sourceKey);
+
+  if (/^(?:版本|version)$/iu.test(text)) {
+    return replyLine(config, event.replyToken, [
+      textMessage(`目前版本：${DIARY_IMPORT_VERSION}`)
+    ]);
+  }
 
   const diaryImport = parseDiaryImport(text);
   if (diaryImport) {
