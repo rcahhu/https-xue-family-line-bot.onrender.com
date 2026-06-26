@@ -171,6 +171,15 @@ h3 {
   padding: 18px clamp(12px, 3vw, 28px) 28px;
 }
 
+.is-creating .layout {
+  grid-template-columns: minmax(0, 820px);
+  justify-content: center;
+}
+
+.is-creating .sidebar {
+  display: none;
+}
+
 .sidebar,
 .workspace {
   background: var(--surface);
@@ -216,16 +225,84 @@ h3 {
   gap: 12px;
 }
 
-.create-form {
+.create-link {
+  display: grid;
+  place-items: center;
+  min-height: 54px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--brand);
+  text-decoration: none;
+  font-weight: 900;
+}
+
+.create-link:hover {
+  background: var(--brand-dark);
+}
+
+.new-diary-view {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.new-diary-view[hidden] {
+  display: none;
+}
+
+.new-diary-hero {
+  min-height: 190px;
+  border-radius: 8px;
+  padding: 24px;
+  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(31, 91, 69, 0.1), rgba(31, 91, 69, 0.76)),
+    radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.5) 0 9%, transparent 10%),
+    radial-gradient(circle at 82% 18%, rgba(242, 184, 71, 0.52) 0 12%, transparent 13%),
+    linear-gradient(145deg, #52c48d, #76abd2);
+}
+
+.new-diary-hero h2 {
+  margin-bottom: 8px;
+  font-size: clamp(2rem, 8vw, 3.25rem);
+  line-height: 1.05;
+}
+
+.new-diary-hero p:last-child {
+  max-width: 520px;
+  margin-bottom: 0;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.new-diary-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
+  padding: 18px;
   background: #fbfdfb;
 }
 
-.create-form h2 {
-  margin: 0;
-  font-size: 1rem;
+.new-diary-form .full {
+  grid-column: 1 / -1;
+}
+
+.new-diary-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.plain-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--brand-dark);
+  text-decoration: none;
+  font-weight: 900;
 }
 
 .primary-button,
@@ -779,18 +856,22 @@ h3 {
     padding: 18px 16px;
   }
 
-  .create-form {
+  .create-link {
     position: fixed;
     left: 16px;
     right: 16px;
     bottom: max(14px, env(safe-area-inset-bottom));
     z-index: 18;
-    grid-template-columns: 1fr;
     box-shadow: var(--shadow);
   }
 
-  .has-trip .create-form {
+  .has-trip .create-link,
+  .is-creating .sidebar {
     display: none;
+  }
+
+  .is-creating .workspace {
+    display: block;
   }
 
   .no-trip .workspace {
@@ -814,6 +895,7 @@ h3 {
   .item-form,
   .item-edit-form,
   .wish-form,
+  .new-diary-form,
   .stats,
   .field-grid,
   .recommendation-grid {
@@ -834,8 +916,15 @@ h3 {
   .item-form .full,
   .item-edit-form .wide,
   .item-edit-form .full,
-  .wish-form .full {
+  .wish-form .full,
+  .new-diary-form .full,
+  .new-diary-actions {
     grid-column: auto;
+  }
+
+  .new-diary-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
   }
 
   .entry-row {

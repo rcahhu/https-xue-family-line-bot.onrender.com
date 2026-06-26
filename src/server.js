@@ -103,6 +103,9 @@ async function handleApi(req, res, url) {
     const trip = await store.createTrip({
       title: body.title,
       area: body.area || body.title,
+      startDate: body.startDate || "",
+      endDate: body.endDate || "",
+      note: body.note || "",
       owner: actor,
       sourceKey: body.sourceKey || ""
     });

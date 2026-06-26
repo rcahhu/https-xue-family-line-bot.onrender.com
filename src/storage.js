@@ -74,7 +74,7 @@ export class TripStore {
     return trip;
   }
 
-  async createTrip({ title, area, owner, sourceKey }) {
+  async createTrip({ title, area, startDate, endDate, note, owner, sourceKey }) {
     return this.mutate((db) => {
       const now = new Date().toISOString();
       const actor = normalizeActor(owner);
@@ -82,6 +82,9 @@ export class TripStore {
         id: createId("trip"),
         title: cleanText(title) || "未命名旅行",
         area: cleanText(area || title) || "未設定地區",
+        startDate: cleanText(startDate),
+        endDate: cleanText(endDate),
+        note: cleanText(note),
         inviteToken: createId("invite"),
         createdAt: now,
         updatedAt: now,
@@ -112,6 +115,9 @@ export class TripStore {
       upsertMember(trip, normalizedActor, "member");
       if (patch.title !== undefined) trip.title = cleanText(patch.title) || trip.title;
       if (patch.area !== undefined) trip.area = cleanText(patch.area) || trip.area;
+      if (patch.startDate !== undefined) trip.startDate = cleanText(patch.startDate);
+      if (patch.endDate !== undefined) trip.endDate = cleanText(patch.endDate);
+      if (patch.note !== undefined) trip.note = cleanText(patch.note);
       touch(trip, normalizedActor);
       return trip;
     });
@@ -297,6 +303,9 @@ function hydrateTrip(trip) {
   trip.createdBy = normalizeActor(trip.createdBy || trip.owner);
   trip.updatedBy = normalizeActor(trip.updatedBy || trip.owner);
   trip.sourceKeys = Array.isArray(trip.sourceKeys) ? trip.sourceKeys : [];
+  trip.startDate = cleanText(trip.startDate);
+  trip.endDate = cleanText(trip.endDate);
+  trip.note = cleanText(trip.note);
   trip.members = Array.isArray(trip.members) ? trip.members.map(hydrateMember) : [];
   if (!trip.members.some((member) => member.lineUserId === trip.owner.lineUserId)) {
     trip.members.unshift({

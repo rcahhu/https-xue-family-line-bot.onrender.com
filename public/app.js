@@ -4,6 +4,7 @@ const state = {
   liffReady: false,
   trips: [],
   currentTrip: null,
+  isCreating: false,
   activeTab: "itinerary",
   recommendations: null,
   recommendationTripId: null
@@ -14,8 +15,12 @@ const els = {
   inviteButton: document.querySelector("#inviteButton"),
   deleteTripButton: document.querySelector("#deleteTripButton"),
   createTripForm: document.querySelector("#createTripForm"),
+  newDiaryView: document.querySelector("#newDiaryView"),
   tripTitleInput: document.querySelector("#tripTitleInput"),
   tripAreaInput: document.querySelector("#tripAreaInput"),
+  tripStartDateInput: document.querySelector("#tripStartDateInput"),
+  tripEndDateInput: document.querySelector("#tripEndDateInput"),
+  tripNoteInput: document.querySelector("#tripNoteInput"),
   tripList: document.querySelector("#tripList"),
   emptyState: document.querySelector("#emptyState"),
   tripView: document.querySelector("#tripView"),
@@ -50,6 +55,7 @@ async function init() {
   const params = new URLSearchParams(location.search);
   const tripId = params.get("trip");
   const inviteToken = params.get("invite");
+  state.isCreating = params.has("new");
 
   if (tripId && inviteToken) {
     await joinTripFromInvite(tripId, inviteToken);
@@ -70,10 +76,18 @@ function bindEvents() {
 
     const { trip } = await api("/api/trips", {
       method: "POST",
-      body: { title, area, actor: state.user }
+      body: {
+        title,
+        area,
+        startDate: els.tripStartDateInput.value,
+        endDate: els.tripEndDateInput.value,
+        note: els.tripNoteInput.value.trim(),
+        actor: state.user
+      }
     });
 
     els.createTripForm.reset();
+    state.isCreating = false;
     await loadTrips();
     await selectTrip(trip.id);
     toast(`已建立「${trip.title}」`);
@@ -318,6 +332,7 @@ async function selectTrip(tripId, inviteToken = "") {
   });
   if (inviteToken) params.set("invite", inviteToken);
   const { trip } = await api(`/api/trips/${tripId}?${params}`);
+  state.isCreating = false;
   state.currentTrip = trip;
   await loadRecommendations(true);
   render();
@@ -375,18 +390,21 @@ function render() {
   renderUser();
   renderTripList();
   const hasTrip = Boolean(state.currentTrip);
+  const isCreating = Boolean(state.isCreating);
   document.body.classList.toggle("has-trip", hasTrip);
-  document.body.classList.toggle("no-trip", !hasTrip);
-  els.emptyState.hidden = hasTrip;
-  els.tripView.hidden = !hasTrip;
+  document.body.classList.toggle("no-trip", !hasTrip && !isCreating);
+  document.body.classList.toggle("is-creating", isCreating);
+  els.newDiaryView.hidden = !isCreating;
+  els.emptyState.hidden = hasTrip || isCreating;
+  els.tripView.hidden = !hasTrip || isCreating;
   els.inviteButton.disabled = !hasTrip;
-  els.quickAddButton.hidden = !hasTrip;
-  if (!hasTrip) return;
+  els.quickAddButton.hidden = !hasTrip || isCreating;
+  if (!hasTrip || isCreating) return;
 
   els.currentTripTitle.value = state.currentTrip.title;
   els.currentTripArea.value = state.currentTrip.area;
   els.tripHeroTitle.textContent = state.currentTrip.title;
-  els.tripHeroMeta.textContent = `${state.currentTrip.area} · ${state.currentTrip.members.length} 位同伴 · ${state.currentTrip.itinerary.length} 筆行程`;
+  els.tripHeroMeta.textContent = tripMeta(state.currentTrip);
   renderStats();
   renderItinerary();
   renderWishes();
@@ -411,7 +429,7 @@ function renderTripList() {
           <span class="trip-cover">
             <strong>${escapeHtml(trip.title)}</strong>
           </span>
-          <span>${escapeHtml(trip.area)} · ${trip.itinerary.length} 筆行程 · ${trip.members.length} 位同伴</span>
+          <span>${escapeHtml(tripMeta(trip))}</span>
         </button>
       `
     )
@@ -433,6 +451,11 @@ function renderStats() {
     stat("同伴名單", memberNames),
     stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
+}
+
+function tripMeta(trip) {
+  const dates = trip.startDate || trip.endDate ? `${trip.startDate || "未定"} 到 ${trip.endDate || "未定"}` : trip.area;
+  return `${dates} · ${trip.itinerary.length} 筆行程 · ${trip.members.length} 位同伴`;
 }
 
 function renderItinerary() {
