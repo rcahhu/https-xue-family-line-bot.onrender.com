@@ -690,7 +690,7 @@ function uniqueClean(values) {
 
 function normalizePhotoUrl(value) {
   const url = cleanText(value);
-  if (!/^https?:\/\//i.test(url)) return "";
+  if (!isAllowedPhotoUrl(url)) return "";
   return url;
 }
 
@@ -700,7 +700,11 @@ function normalizePhotoUrls(value) {
     : String(value || "")
         .split(/[\s,，\n]+/)
         .filter(Boolean);
-  return uniqueClean(values).filter((url) => /^https?:\/\//i.test(url)).slice(0, 12);
+  return uniqueClean(values).filter(isAllowedPhotoUrl).slice(0, 12);
+}
+
+function isAllowedPhotoUrl(url) {
+  return /^https?:\/\//i.test(url) || /^\/uploads\/[A-Za-z0-9._-]+$/u.test(url);
 }
 
 function todoKey(todo) {

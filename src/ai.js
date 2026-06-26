@@ -1,5 +1,5 @@
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
-export const DEFAULT_OPENAI_MODEL = "gpt-5.5";
+export const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 
 export async function createTravelAssistantReply({
   question = "",

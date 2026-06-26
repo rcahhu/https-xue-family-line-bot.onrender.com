@@ -1,4 +1,5 @@
 import { createTravelAssistantReply, createTravelPlanningUpdate } from "./ai.js";
+import { parseDiaryImport } from "./diaryImport.js";
 import { getRecommendations } from "./recommendations.js";
 import { makeSourceKey, normalizeActor } from "./storage.js";
 
@@ -20,6 +21,22 @@ export async function handleLineEvent(event, { store, config }) {
   const text = event.message.text.trim();
   const sourceKey = makeSourceKey(event.source);
   const actor = actorFromEvent(event, sourceKey);
+
+  const diaryImport = parseDiaryImport(text);
+  if (diaryImport) {
+    const activeTrip = diaryImport.createNew
+      ? null
+      : await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
+    const trip =
+      activeTrip ||
+      (await store.createTrip({
+        ...diaryImport.trip,
+        owner: actor,
+        sourceKey
+      }));
+    const updatedTrip = await applyPlanningUpdate(store, trip, diaryImport.update, actor);
+    return replyLine(config, event.replyToken, [plannerFlex(config, updatedTrip, diaryImport.update)]);
+  }
 
   if (isHome(text)) {
     return replyLine(config, event.replyToken, [

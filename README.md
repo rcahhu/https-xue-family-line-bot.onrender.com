@@ -97,7 +97,7 @@ LINE_CHANNEL_SECRET=...
 LINE_CHANNEL_ACCESS_TOKEN=...
 LIFF_ID=...
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.4-mini
 OPENAI_ENABLE_WEB_SEARCH=true
 ```
 
@@ -120,7 +120,7 @@ Render 的 `Environment` 裡新增：
 
 ```text
 OPENAI_API_KEY=你的 OpenAI API key
-OPENAI_MODEL=gpt-5.5
+OPENAI_MODEL=gpt-5.4-mini
 OPENAI_ENABLE_WEB_SEARCH=true
 ```
 
