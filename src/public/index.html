@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>薛家好好玩</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-mark" aria-hidden="true">薛</span>
+          <div>
+          <p class="eyebrow">LINE 旅行日記</p>
+          <h1>薛家好好玩</h1>
+          </div>
+        </div>
+        <div class="top-actions">
+          <span id="userBadge" class="user-badge">載入中</span>
+          <button id="inviteButton" class="ghost-button" type="button" disabled>↗ 邀請</button>
+        </div>
+      </header>
+
+      <main class="layout">
+        <aside class="sidebar" aria-label="旅行本">
+          <div class="sidebar-title">
+            <h2>我的日記</h2>
+            <p>選一本開始排行程</p>
+          </div>
+          <a class="create-link" href="/app?new=1">建立新日記</a>
+          <nav id="tripList" class="trip-list"></nav>
+        </aside>
+
+        <section class="workspace" aria-live="polite">
+          <div id="newDiaryView" class="new-diary-view" hidden>
+            <section class="new-diary-hero">
+              <div class="new-diary-hero-text">
+                <p class="eyebrow">建立旅遊日記</p>
+                <h2>新增一本旅遊日記</h2>
+                <p>這裡是日記封面，先放照片，再填基本資料。</p>
+              </div>
+              <label class="cover-photo-field">
+                封面照片
+                <input id="tripCoverPhotoInput" name="coverPhotoFile" type="file" accept="image/*" />
+              </label>
+            </section>
+
+            <form id="createTripForm" class="new-diary-form">
+              <label>
+                日記名稱
+                <input id="tripTitleInput" name="title" autocomplete="off" placeholder="例如：宜蘭兩天一夜" required />
+              </label>
+              <label>
+                地區
+                <input id="tripAreaInput" name="area" autocomplete="off" placeholder="例如：宜蘭、礁溪、羅東" />
+              </label>
+              <label>
+                出發日
+                <input id="tripStartDateInput" name="startDate" type="date" />
+              </label>
+              <label>
+                回程日
+                <input id="tripEndDateInput" name="endDate" type="date" />
+              </label>
+              <label class="full">
+                備註
+                <textarea id="tripNoteInput" name="note" placeholder="例如：家庭旅遊、想泡湯、要找親子景點"></textarea>
+              </label>
+              <div class="new-diary-actions">
+                <a class="plain-link" href="/app">返回我的日記</a>
+                <button class="primary-button" type="submit">建立旅遊日記</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="emptyState" class="empty-state">
+            <p>從左邊建立或選擇一本旅行日記。</p>
+          </div>
+
+          <div id="tripView" class="trip-view" hidden>
+            <section class="trip-head">
+              <div class="trip-hero">
+                <div>
+                  <p class="eyebrow">旅行日記</p>
+                  <h2 id="tripHeroTitle">旅行日記</h2>
+                  <p id="tripHeroMeta">載入中</p>
+                </div>
+              </div>
+
+              <details class="trip-edit">
+                <summary>編輯日記</summary>
+              <form id="tripSettingsForm" class="trip-settings">
+                <label>
+                  名稱
+                  <input id="currentTripTitle" name="title" required />
+                </label>
+                <label>
+                  地區
+                  <input id="currentTripArea" name="area" required />
+                </label>
+                <label>
+                  人數
+                  <input id="currentTripPeople" name="peopleCount" placeholder="例如：4人" />
+                </label>
+                <label>
+                  旅行風格
+                  <input id="currentTripStyle" name="stylePreference" placeholder="例如：美食、海邊、慢活" />
+                </label>
+                <label>
+                  住宿偏好
+                  <input id="currentTripLodging" name="lodgingPreference" placeholder="例如：含早餐、近車站" />
+                </label>
+                <label>
+                  封面照片
+                  <input id="currentTripCoverPhoto" name="coverPhotoFile" type="file" accept="image/*" />
+                </label>
+                <button class="compact-button" type="submit">儲存</button>
+              </form>
+              <div class="trip-actions">
+                <button id="deleteTripButton" class="danger-button" type="button">刪除日記</button>
+              </div>
+              </details>
+              <div id="tripStats" class="stats"></div>
+            </section>
+
+            <div class="tabs" role="tablist" aria-label="旅行日記分頁">
+              <button class="tab is-active" type="button" data-tab="itinerary">行程</button>
+              <button class="tab" type="button" data-tab="todos">待辦</button>
+              <button class="tab" type="button" data-tab="wishes">許願</button>
+              <button class="tab" type="button" data-tab="recommendations">附近熱門</button>
+              <button class="tab" type="button" data-tab="members">同伴</button>
+            </div>
+
+            <section id="itineraryPanel" class="panel" data-panel="itinerary"></section>
+            <section id="todosPanel" class="panel" data-panel="todos" hidden></section>
+            <section id="wishesPanel" class="panel" data-panel="wishes" hidden></section>
+            <section id="recommendationsPanel" class="panel" data-panel="recommendations" hidden></section>
+            <section id="membersPanel" class="panel" data-panel="members" hidden></section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <button id="quickAddButton" class="quick-add" type="button" hidden>＋</button>
+    <div id="toast" class="toast" role="status" hidden></div>
+  </body>
+</html>
