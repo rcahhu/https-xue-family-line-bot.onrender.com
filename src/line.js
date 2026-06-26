@@ -4,11 +4,15 @@ import { makeSourceKey, normalizeActor } from "./storage.js";
 
 export async function handleLineEvent(event, { store, config }) {
   if (event.type === "follow") {
-    return replyLine(config, event.replyToken, [homeFlex(config)]);
+    return replyLine(config, event.replyToken, [
+      textMessage("直接輸入「建立日記」開始；之後用聊天丟旅行計畫，我會自動整理成旅行日記和待辦。")
+    ]);
   }
 
   if (event.type === "join") {
-    return replyLine(config, event.replyToken, [homeFlex(config, "我加入群組了，直接點下面的方塊開始。")]);
+    return replyLine(config, event.replyToken, [
+      textMessage("我加入群組了。直接輸入「建立日記」，之後用聊天丟旅行計畫。")
+    ]);
   }
 
   if (event.type !== "message" || event.message?.type !== "text") return;
@@ -18,7 +22,9 @@ export async function handleLineEvent(event, { store, config }) {
   const actor = actorFromEvent(event, sourceKey);
 
   if (isHome(text)) {
-    return replyLine(config, event.replyToken, [homeFlex(config)]);
+    return replyLine(config, event.replyToken, [
+      textMessage("可用：建立日記、打開日記、順路推薦、小幫手。也可以直接問：高雄下雨天怎麼玩。")
+    ]);
   }
 
   if (/^建立日記$/u.test(text)) {
@@ -71,7 +77,7 @@ export async function handleLineEvent(event, { store, config }) {
     const trip = await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
     if (!trip) {
       return replyLine(config, event.replyToken, [
-        homeFlex(config, "還沒有日記可以放願望，先點「建立/查詢日記」。")
+        textMessage("還沒有日記可以放願望。先輸入「建立日記」，我會開一本新的旅行日記。")
       ]);
     }
     const wishText = wishMatch[1].trim();
@@ -123,14 +129,14 @@ export async function handleLineEvent(event, { store, config }) {
   if (/^(?:開啟|打開|開啟日記頁|旅遊日記|旅行日記)$/u.test(text)) {
     const trip = await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
     return replyLine(config, event.replyToken, [
-      trip ? tripFlex(config, trip, "打開目前旅行日記") : homeFlex(config, "目前還沒有日記，先建立一本。")
+      trip ? tripFlex(config, trip, "打開目前旅行日記") : textMessage("目前還沒有日記。請輸入「建立日記」。")
     ]);
   }
 
   if (/^(?:小幫手|檢查|待辦|檢查行程)$/u.test(text)) {
     const trip = await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
     return replyLine(config, event.replyToken, [
-      trip ? helperFlex(config, trip) : homeFlex(config, "目前還沒有日記，先按「建立日記」。")
+      trip ? helperFlex(config, trip) : textMessage("目前還沒有日記。請輸入「建立日記」，我再幫你檢查待辦缺口。")
     ]);
   }
 
@@ -147,7 +153,21 @@ export async function handleLineEvent(event, { store, config }) {
     return replyLine(config, event.replyToken, [plannerFlex(config, updatedTrip, update)]);
   }
 
-  return replyLine(config, event.replyToken, [homeFlex(config, "先按「建立日記」，之後直接聊天，我會幫你整理成旅行日記。")]);
+  if (looksLikeTravelQuestion(text)) {
+    const recommendations = getRecommendations({ area: text });
+    const answer = await createTravelAssistantReply({
+      question: text,
+      trip: null,
+      recommendations,
+      config,
+      intent: "ask"
+    });
+    return replyLine(config, event.replyToken, [assistantFlex(text, null, recommendations, answer)]);
+  }
+
+  return replyLine(config, event.replyToken, [
+    textMessage("我會直接把旅行內容整理成日記。請輸入「建立日記」，或直接問我旅行問題。")
+  ]);
 }
 
 export async function replyLine(config, replyToken, messages) {
@@ -243,7 +263,7 @@ function homeFlex(config, subtitle = "不用打關鍵字，直接點下面的方
 
 function tripListFlex(config, trips) {
   if (!trips.length) {
-    return homeFlex(config, "目前還沒有旅行日記，先點「建立 / 查詢日記」新增一本。");
+    return textMessage("目前還沒有旅行日記。請輸入「建立日記」。");
   }
 
   return flexMessage("我的旅行日記", {
@@ -553,6 +573,10 @@ function actorFromEvent(event, sourceKey = makeSourceKey(event.source)) {
 
 function isHome(textValue) {
   return /^(?:功能|選單|首頁|開始|help|指令|說明|幫助)$/iu.test(textValue);
+}
+
+function looksLikeTravelQuestion(textValue) {
+  return /怎麼玩|下雨|雨天|吃什麼|玩什麼|去哪|景點|推薦|行程|安排|交通|住宿|餐廳|親子/u.test(textValue);
 }
 
 function todoSummary(trip) {

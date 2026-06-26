@@ -260,6 +260,16 @@ h3 {
     radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.5) 0 9%, transparent 10%),
     radial-gradient(circle at 82% 18%, rgba(242, 184, 71, 0.52) 0 12%, transparent 13%),
     linear-gradient(145deg, #52c48d, #76abd2);
+  background-position: center;
+  background-size: cover;
+}
+
+.new-diary-hero.has-cover-photo {
+  min-height: 300px;
+}
+
+.new-diary-hero-text {
+  max-width: 620px;
 }
 
 .new-diary-hero h2 {
@@ -272,6 +282,22 @@ h3 {
   max-width: 520px;
   margin-bottom: 0;
   color: rgba(255, 255, 255, 0.88);
+}
+
+.cover-photo-field {
+  max-width: 420px;
+  margin-top: 22px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.cover-photo-field input {
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+  background: rgba(20, 66, 50, 0.36);
+}
+
+.cover-photo-field input::placeholder {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .new-diary-form {
@@ -864,7 +890,7 @@ h3 {
   right: max(22px, env(safe-area-inset-right));
   bottom: max(22px, env(safe-area-inset-bottom));
   z-index: 20;
-  display: grid;
+  display: none !important;
   place-items: center;
   width: 68px;
   height: 68px;

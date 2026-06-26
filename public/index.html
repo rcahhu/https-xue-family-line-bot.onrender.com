@@ -37,9 +37,15 @@
         <section class="workspace" aria-live="polite">
           <div id="newDiaryView" class="new-diary-view" hidden>
             <section class="new-diary-hero">
-              <p class="eyebrow">建立旅遊日記</p>
-              <h2>新增一本旅遊日記</h2>
-              <p>先填基本資料，進入後再慢慢加行程、搭車、住宿和願望。</p>
+              <div class="new-diary-hero-text">
+                <p class="eyebrow">建立旅遊日記</p>
+                <h2>新增一本旅遊日記</h2>
+                <p>這裡是日記封面，先放照片，再填基本資料。</p>
+              </div>
+              <label class="cover-photo-field">
+                封面照片網址
+                <input id="tripCoverPhotoInput" name="coverPhotoUrl" autocomplete="off" placeholder="https://..." />
+              </label>
             </section>
 
             <form id="createTripForm" class="new-diary-form">
@@ -62,10 +68,6 @@
               <label class="full">
                 備註
                 <textarea id="tripNoteInput" name="note" placeholder="例如：家庭旅遊、想泡湯、要找親子景點"></textarea>
-              </label>
-              <label class="full">
-                封面照片網址
-                <input id="tripCoverPhotoInput" name="coverPhotoUrl" autocomplete="off" placeholder="可以先空白，之後再放照片網址" />
               </label>
               <div class="new-diary-actions">
                 <a class="plain-link" href="/app">返回我的日記</a>

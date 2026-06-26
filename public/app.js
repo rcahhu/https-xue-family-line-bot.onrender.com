@@ -95,11 +95,14 @@ function bindEvents() {
     });
 
     els.createTripForm.reset();
+    renderNewDiaryCoverPreview();
     state.isCreating = false;
     await loadTrips();
     await selectTrip(trip.id);
     toast(`已建立「${trip.title}」`);
   });
+
+  els.tripCoverPhotoInput.addEventListener("input", renderNewDiaryCoverPreview);
 
   els.tripList.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-trip-id]");
@@ -516,6 +519,16 @@ function renderCoverPhoto() {
   els.tripHero.classList.toggle("has-cover-photo", Boolean(url));
   els.tripHero.style.backgroundImage = url
     ? `linear-gradient(180deg, rgba(29, 72, 55, 0.1), rgba(29, 72, 55, 0.72)), url("${cssUrl(url)}")`
+    : "";
+}
+
+function renderNewDiaryCoverPreview() {
+  const hero = document.querySelector(".new-diary-hero");
+  if (!hero) return;
+  const url = els.tripCoverPhotoInput.value.trim();
+  hero.classList.toggle("has-cover-photo", Boolean(url));
+  hero.style.backgroundImage = url
+    ? `linear-gradient(180deg, rgba(29, 72, 55, 0.16), rgba(29, 72, 55, 0.72)), url("${cssUrl(url)}")`
     : "";
 }
 
