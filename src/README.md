@@ -92,14 +92,63 @@ http://localhost:3000/health
 ```text
 APP_NAME=薛家好好玩
 PORT=3000
-BASE_URL=https://你的網域
+BASE_URL=https://你的 Render 網域
 LINE_CHANNEL_SECRET=...
 LINE_CHANNEL_ACCESS_TOKEN=...
 LIFF_ID=...
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5-mini
 OPENAI_ENABLE_WEB_SEARCH=true
+
+# Render 免費 + Supabase 免費：建議用這組，不需要 Persistent Disk
+STORAGE_BACKEND=supabase
+SUPABASE_URL=https://你的-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STATE_TABLE=xuebot_state
+SUPABASE_STATE_ID=default
+SUPABASE_STORAGE_BUCKET=xuebot-photos
 ```
+
+### 日記不要消失的設定：Render 免費 + Supabase 免費
+
+這版已支援 Supabase。正式家庭使用時，建議讓 Render Free 只負責跑 LINE webhook 和網頁，日記資料與照片改存 Supabase：
+
+- 日記資料：存到 Supabase Postgres 的 `xuebot_state` 表格，一列 JSON。
+- 封面與行程照片：存到 Supabase Storage 的 `xuebot-photos` bucket。
+- 本機 `data/trips.json` 只保留當開發備用；Render 上設定 Supabase 後，不需要 Persistent Disk。
+
+Supabase SQL Editor 請先執行：
+
+```sql
+create table if not exists public.xuebot_state (
+  id text primary key,
+  data jsonb not null default '{"version":3,"trips":[]}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.xuebot_state enable row level security;
+
+insert into public.xuebot_state (id, data)
+values ('default', '{"version":3,"trips":[]}'::jsonb)
+on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('xuebot-photos', 'xuebot-photos', true)
+on conflict (id) do update set public = true;
+```
+
+Render Environment 需要新增：
+
+```text
+STORAGE_BACKEND=supabase
+SUPABASE_URL=https://你的-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=你的 service_role key
+SUPABASE_STATE_TABLE=xuebot_state
+SUPABASE_STATE_ID=default
+SUPABASE_STORAGE_BUCKET=xuebot-photos
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` 只能放在 Render 的 Environment，不要放進 GitHub，也不要貼到 LINE 聊天室。
 
 4. 在 Messaging API channel 的 Webhook URL 設定：
 
@@ -120,8 +169,14 @@ Render 的 `Environment` 裡新增：
 
 ```text
 OPENAI_API_KEY=你的 OpenAI API key
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5-mini
 OPENAI_ENABLE_WEB_SEARCH=true
+STORAGE_BACKEND=supabase
+SUPABASE_URL=https://你的-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_STATE_TABLE=xuebot_state
+SUPABASE_STATE_ID=default
+SUPABASE_STORAGE_BUCKET=xuebot-photos
 ```
 
 存檔後按 Render 的 `Manual Deploy` -> `Deploy latest commit`。重新部署完成後，在 LINE 裡輸入：
@@ -145,7 +200,12 @@ LINE 官方文件：
 
 ## 資料儲存
 
-目前用 `data/trips.json` 儲存，適合 MVP 和家庭小規模使用。正式多人長期使用建議換成 SQLite、Postgres 或 Cloud Firestore。`src/storage.js` 已把資料操作集中在同一層，後續替換資料庫不需要大改 LINE 和前端邏輯。
+這版有兩種儲存方式：
+
+1. `STORAGE_BACKEND=supabase`：正式建議，日記存在 Supabase Postgres，照片存在 Supabase Storage，適合 Render Free。
+2. 未設定 Supabase 時：退回本機 `data/trips.json`，只適合本機測試，部署到 Render Free 後資料仍可能因重啟或重新部署而消失。
+
+`src/storage.js` 已把資料操作集中在同一層；LINE webhook 和前端不需要知道資料實際存在 JSON 還是 Supabase。
 
 ## 之後可加強
 
