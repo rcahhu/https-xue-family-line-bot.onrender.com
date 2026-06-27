@@ -53,10 +53,11 @@ export class TripStore {
     return result;
   }
 
-  async listTrips({ userId, sourceKey } = {}) {
+  async listTrips({ userId, sourceKey, inviteKeys = [] } = {}) {
     const db = await this.read();
+    const inviteMap = normalizeInviteKeys(inviteKeys);
     return db.trips
-      .filter((trip) => canSeeTrip(trip, { userId, sourceKey }))
+      .filter((trip) => canSeeTrip(trip, { userId, sourceKey }) || hasInviteKey(trip, inviteMap))
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }
 
@@ -495,6 +496,19 @@ function canSeeTrip(trip, { userId, sourceKey } = {}) {
   if (!userId) return false;
   if (trip.owner?.lineUserId === userId) return true;
   return trip.members?.some((member) => member.lineUserId === userId);
+}
+
+function normalizeInviteKeys(inviteKeys = []) {
+  const map = new Map();
+  for (const entry of inviteKeys) {
+    const [tripId, inviteToken] = String(entry || "").split(":");
+    if (tripId && inviteToken) map.set(tripId, inviteToken);
+  }
+  return map;
+}
+
+function hasInviteKey(trip, inviteMap) {
+  return inviteMap.get(trip.id) === trip.inviteToken;
 }
 
 function findTrip(db, id) {

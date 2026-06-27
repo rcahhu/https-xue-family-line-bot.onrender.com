@@ -103,7 +103,11 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && url.pathname === "/api/trips") {
     const trips = await store.listTrips({
       userId: url.searchParams.get("userId") || "",
-      sourceKey: url.searchParams.get("sourceKey") || ""
+      sourceKey: url.searchParams.get("sourceKey") || "",
+      inviteKeys: (url.searchParams.get("invites") || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
     });
     return sendJson(res, { trips });
   }
