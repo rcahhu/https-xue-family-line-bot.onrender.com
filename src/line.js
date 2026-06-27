@@ -6,13 +6,13 @@ import { makeSourceKey, normalizeActor } from "./storage.js";
 export async function handleLineEvent(event, { store, config }) {
   if (event.type === "follow") {
     return replyLine(config, event.replyToken, [
-      textMessage("直接輸入「建立日記」開始；之後用聊天丟旅行計畫，我會自動整理成旅行日記和待辦。")
+      homeFlex(config, "加好友成功。可以先建立一本日記，再把旅行計畫丟到聊天室，我會邊聊邊整理。")
     ]);
   }
 
   if (event.type === "join") {
     return replyLine(config, event.replyToken, [
-      textMessage("我加入群組了。直接輸入「建立日記」，之後用聊天丟旅行計畫。")
+      homeFlex(config, "我加入群組了。可以先建立一本日記，再把交通、住宿、想去的點丟進來。")
     ]);
   }
 
@@ -45,12 +45,10 @@ export async function handleLineEvent(event, { store, config }) {
   }
 
   if (isHome(text)) {
-    return replyLine(config, event.replyToken, [
-      textMessage("可用：建立日記、打開日記、順路推薦、小幫手。也可以直接問：高雄下雨天怎麼玩。")
-    ]);
+    return replyLine(config, event.replyToken, [homeFlex(config)]);
   }
 
-  if (/^建立日記$/u.test(text)) {
+  if (/^(?:建立日記|建立旅遊日記|新增日記|新增旅遊日記|建立新日記)$/u.test(text)) {
     const trip = await store.createTrip({
       title: "新的旅行日記",
       area: "未設定地區",
@@ -110,7 +108,7 @@ export async function handleLineEvent(event, { store, config }) {
     ]);
   }
 
-  const recommendMatch = text.match(/^(?:推薦|附近|附近熱門|順路推薦|附近可以去哪|吃什麼|玩什麼)\s*(.*)$/u);
+  const recommendMatch = text.match(/^(?:推薦|附近|附近熱門|附近推薦|順路推薦|熱門景點|熱門美食|附近可以去哪|吃什麼|玩什麼)\s*(.*)$/u);
   if (recommendMatch) {
     const activeTrip = await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
     const area = recommendMatch[1].trim() || activeTrip?.area || "";
@@ -149,7 +147,7 @@ export async function handleLineEvent(event, { store, config }) {
     return replyLine(config, event.replyToken, [assistantFlex(question, activeTrip, recommendations, answer)]);
   }
 
-  if (/^(?:開啟|打開|開啟日記頁|旅遊日記|旅行日記)$/u.test(text)) {
+  if (/^(?:開啟|打開|開啟日記|打開日記|開啟日記頁|打開日記頁|旅遊日記|旅行日記|日記本)$/u.test(text)) {
     const trip = await store.findActiveTrip({ userId: actor.lineUserId, sourceKey });
     return replyLine(config, event.replyToken, [
       trip ? tripFlex(config, trip, "打開目前旅行日記") : textMessage("目前還沒有日記。請輸入「建立日記」。")
@@ -228,11 +226,19 @@ export function tripUrl(config, trip) {
   return `${config.baseUrl.replace(/\/$/, "")}/app?${params}`;
 }
 
+function absoluteUrl(config, url) {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${config.baseUrl.replace(/\/$/, "")}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
 function homeUrl(config) {
+  if (config.liffId) return `https://liff.line.me/${config.liffId}`;
   return `${config.baseUrl.replace(/\/$/, "")}/app`;
 }
 
 function newTripUrl(config) {
+  if (config.liffId) return `https://liff.line.me/${config.liffId}?new=1`;
   return `${config.baseUrl.replace(/\/$/, "")}/app?new=1`;
 }
 
@@ -253,9 +259,9 @@ function homeFlex(config, subtitle = "不用打關鍵字，直接點下面的方
           spacing: "sm",
           contents: [
             actionBox("建立旅遊日記", "進入全新填寫畫面", "#52C48D", {
-              type: "message",
+              type: "uri",
               label: "建立",
-              text: "建立日記"
+              uri: newTripUrl(config)
             }),
             actionBox("打開日記", "查看目前已整理好的旅行日記", "#75A9D6", {
               type: "uri",
@@ -300,9 +306,21 @@ function tripFlex(config, trip, label = "旅行日記") {
 }
 
 function tripBubble(config, trip, label) {
+  const coverUrl = absoluteUrl(config, trip.coverPhotoUrl);
   return {
     type: "bubble",
     size: "mega",
+    ...(coverUrl
+      ? {
+          hero: {
+            type: "image",
+            url: coverUrl,
+            size: "full",
+            aspectRatio: "20:13",
+            aspectMode: "cover"
+          }
+        }
+      : {}),
     header: headerBlock(trip.title, label),
     body: {
       type: "box",
@@ -312,7 +330,7 @@ function tripBubble(config, trip, label) {
         infoRow("地區", trip.area),
         infoRow("行程", `${trip.itinerary.length} 筆`),
         infoRow("同行人數", trip.peopleCount || "未填"),
-        infoRow("編輯成員", `${trip.members.length} 位`),
+        infoRow("最後編輯", actorName(trip.updatedBy)),
         infoRow("最後修改", formatDateTime(trip.updatedAt))
       ]
     },
@@ -326,9 +344,9 @@ function tripBubble(config, trip, label) {
           label: "打開日記",
           uri: tripUrl(config, trip)
         }),
-        button("邀請成員", {
+        button("分享日記", {
           type: "uri",
-          label: "邀請成員",
+          label: "分享日記",
           uri: tripUrl(config, trip)
         }, "secondary")
       ]
@@ -585,11 +603,15 @@ function separator() {
   };
 }
 
+function actorName(actor = {}) {
+  return actor.lineUserId || actor.userId || actor.displayName || actor.name || "未取得 LINE ID";
+}
+
 function actorFromEvent(event, sourceKey = makeSourceKey(event.source)) {
   return {
     ...normalizeActor({
       lineUserId: event.source?.userId || sourceKey || "line-guest",
-      displayName: "LINE 旅伴"
+      displayName: event.source?.userId || sourceKey || "line-guest"
     }),
     sourceKey
   };

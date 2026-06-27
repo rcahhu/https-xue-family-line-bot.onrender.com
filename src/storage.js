@@ -18,6 +18,7 @@ export class TripStore {
   constructor(dataFile) {
     this.dataFile = dataFile;
     this.ready = this.ensureDatabase();
+    this.writeQueue = Promise.resolve();
   }
 
   async ensureDatabase() {
@@ -47,18 +48,25 @@ export class TripStore {
   }
 
   async mutate(fn) {
-    const db = await this.read();
-    const result = await fn(db);
-    await this.write(db);
-    return result;
+    const run = async () => {
+      const db = await this.read();
+      const result = await fn(db);
+      await this.write(db);
+      return result;
+    };
+
+    const operation = this.writeQueue.then(run, run);
+    this.writeQueue = operation.catch(() => {});
+    return operation;
   }
 
-  async listTrips({ userId, sourceKey, inviteKeys = [] } = {}) {
+  async listTrips({ userId, sourceKey, inviteKeys = [], includeAll = false } = {}) {
     const db = await this.read();
     const inviteMap = normalizeInviteKeys(inviteKeys);
-    return db.trips
-      .filter((trip) => canSeeTrip(trip, { userId, sourceKey }) || hasInviteKey(trip, inviteMap))
-      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    const trips = includeAll
+      ? db.trips
+      : db.trips.filter((trip) => canSeeTrip(trip, { userId, sourceKey }) || hasInviteKey(trip, inviteMap));
+    return trips.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }
 
   async getTrip(id, { userId, sourceKey, inviteToken, allowPublic = false } = {}) {
@@ -414,9 +422,10 @@ export class TripStore {
 
 export function normalizeActor(actor = {}) {
   const lineUserId = cleanText(actor.lineUserId || actor.userId || "guest");
+  const displayName = cleanText(actor.displayName || actor.name || lineUserId);
   return {
     lineUserId,
-    displayName: cleanText(actor.displayName || actor.name || "旅伴")
+    displayName
   };
 }
 
@@ -428,7 +437,7 @@ export function makeSourceKey(source = {}) {
 }
 
 function hydrateTrip(trip) {
-  const actor = normalizeActor(trip.owner || trip.createdBy || { displayName: "旅伴" });
+  const actor = normalizeActor(trip.owner || trip.createdBy || {});
   trip.owner = normalizeActor(trip.owner || actor);
   trip.createdBy = normalizeActor(trip.createdBy || trip.owner);
   trip.updatedBy = normalizeActor(trip.updatedBy || trip.owner);
@@ -466,7 +475,7 @@ function hydrateMember(member) {
 }
 
 function hydrateWish(wish) {
-  const author = normalizeActor(wish.author || wish.createdBy || { displayName: "旅伴" });
+  const author = normalizeActor(wish.author || wish.createdBy || {});
   return {
     ...wish,
     type: normalizeWishType(wish.type),
@@ -481,7 +490,7 @@ function hydrateWish(wish) {
 }
 
 function hydrateTodo(todo) {
-  const createdBy = normalizeActor(todo.createdBy || { displayName: "旅伴" });
+  const createdBy = normalizeActor(todo.createdBy || {});
   return normalizeTodoItem({
     ...todo,
     createdBy,
@@ -522,7 +531,11 @@ function requireMember(trip, actor = {}) {
   const sourceKey = actor.sourceKey || "";
   if (!userId && !sourceKey) throw new HttpError(401, "需要 LINE 使用者身份");
   if (!canSeeTrip(trip, { userId, sourceKey })) {
-    throw new HttpError(403, "你還不是這本旅行日記的成員");
+    if (process.env.OPEN_DIARY_BOOK !== "false" && userId) {
+      upsertMember(trip, actor, "member");
+      return;
+    }
+    throw new HttpError(403, "你還不是這本旅行日記的編輯者");
   }
 }
 
@@ -543,7 +556,7 @@ function upsertMember(trip, actor = {}, role = "member") {
 }
 
 function normalizeItineraryItem(item = {}) {
-  const createdBy = normalizeActor(item.createdBy || { displayName: "旅伴" });
+  const createdBy = normalizeActor(item.createdBy || {});
   return {
     id: item.id,
     type: normalizeItineraryType(item.type),
@@ -584,7 +597,7 @@ function normalizeItineraryItem(item = {}) {
 }
 
 function normalizeTodoItem(todo = {}) {
-  const createdBy = normalizeActor(todo.createdBy || { displayName: "旅伴" });
+  const createdBy = normalizeActor(todo.createdBy || {});
   return {
     id: todo.id,
     title: cleanText(todo.title),

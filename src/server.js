@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { DEFAULT_OPENAI_MODEL } from "./ai.js";
 import { DIARY_IMPORT_VERSION } from "./diaryImport.js";
-import { handleLineEvent } from "./line.js";
+import { handleLineEvent, replyLine, textMessage } from "./line.js";
 import { getRecommendations } from "./recommendations.js";
 import { HttpError, normalizeActor, TripStore } from "./storage.js";
 
@@ -81,7 +81,27 @@ async function handleWebhook(req, res) {
 
   const payload = JSON.parse(rawBody.toString("utf8") || "{}");
   const events = Array.isArray(payload.events) ? payload.events : [];
-  await Promise.all(events.map((event) => handleLineEvent(event, { store, config })));
+  for (const event of events) {
+    try {
+      await handleLineEvent(event, { store, config });
+    } catch (error) {
+      console.error("[LINE event failed]", {
+        type: event?.type,
+        messageType: event?.message?.type,
+        messageId: event?.message?.id,
+        error: error?.message || error
+      });
+      if (event?.replyToken) {
+        try {
+          await replyLine(config, event.replyToken, [
+            textMessage("剛剛整理時卡住了。請再傳一次，或先輸入「功能」打開選單。")
+          ]);
+        } catch (replyError) {
+          console.error("[LINE fallback reply failed]", replyError?.message || replyError);
+        }
+      }
+    }
+  }
   return sendJson(res, { ok: true });
 }
 
@@ -104,6 +124,7 @@ async function handleApi(req, res, url) {
     const trips = await store.listTrips({
       userId: url.searchParams.get("userId") || "",
       sourceKey: url.searchParams.get("sourceKey") || "",
+      includeAll: url.searchParams.get("includeAll") === "1",
       inviteKeys: (url.searchParams.get("invites") || "")
         .split(",")
         .map((value) => value.trim())
@@ -145,7 +166,8 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && parts.length === 3) {
     const trip = await store.getTrip(tripId, {
       userId: actorFromQuery.lineUserId,
-      inviteToken
+      inviteToken,
+      allowPublic: url.searchParams.get("allowPublic") === "1"
     });
     return sendJson(res, { trip });
   }
@@ -175,7 +197,8 @@ async function handleApi(req, res, url) {
   if (req.method === "GET" && parts[3] === "recommendations") {
     const trip = await store.getTrip(tripId, {
       userId: actorFromQuery.lineUserId,
-      inviteToken
+      inviteToken,
+      allowPublic: url.searchParams.get("allowPublic") === "1"
     });
     const recommendations = getRecommendations({
       area: url.searchParams.get("area") || trip.area,
@@ -286,7 +309,7 @@ async function handleTodosApi(req, res, tripId, parts) {
 }
 
 async function serveStatic(req, res, pathname) {
-  const normalizedPath = pathname === "/" || pathname === "/app" ? "/index.html" : pathname;
+  const normalizedPath = pathname === "/" || pathname === "/app" || pathname === "/app/" ? "/index.html" : pathname;
   const target = path.resolve(publicDir, `.${normalizedPath}`);
   if (!target.startsWith(publicDir)) throw new HttpError(403, "Forbidden");
 

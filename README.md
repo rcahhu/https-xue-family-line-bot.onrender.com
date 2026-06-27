@@ -97,9 +97,23 @@ LINE_CHANNEL_SECRET=...
 LINE_CHANNEL_ACCESS_TOKEN=...
 LIFF_ID=...
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5-mini
 OPENAI_ENABLE_WEB_SEARCH=true
+# Render 若有掛 Persistent Disk，建議設成 /var/data/trips.json
+DATA_FILE=/var/data/trips.json
 ```
+
+### 日記不要消失的設定
+
+這個版本會盡量讓日記清單固定顯示，不會因為瀏覽器 guest 身份變動就看不到舊日記。
+
+但如果你部署在 Render 之類的平台，平台重新部署或重開機時，專案資料夾裡的 `./data/trips.json` 仍可能被還原。正式使用時請在 Render 加一顆 Persistent Disk，掛載路徑例如 `/var/data`，並把環境變數設成：
+
+```text
+DATA_FILE=/var/data/trips.json
+```
+
+這樣舊日記才不會因為重新部署而不見。
 
 4. 在 Messaging API channel 的 Webhook URL 設定：
 
@@ -120,8 +134,10 @@ Render 的 `Environment` 裡新增：
 
 ```text
 OPENAI_API_KEY=你的 OpenAI API key
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5-mini
 OPENAI_ENABLE_WEB_SEARCH=true
+# Render 若有掛 Persistent Disk，建議設成 /var/data/trips.json
+DATA_FILE=/var/data/trips.json
 ```
 
 存檔後按 Render 的 `Manual Deploy` -> `Deploy latest commit`。重新部署完成後，在 LINE 裡輸入：

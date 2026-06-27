@@ -20,7 +20,7 @@
         </div>
         <div class="top-actions">
           <span id="userBadge" class="user-badge">載入中</span>
-          <button id="inviteButton" class="ghost-button" type="button" disabled>↗ 邀請</button>
+          <button id="inviteButton" class="ghost-button" type="button" disabled>↗ 分享</button>
         </div>
       </header>
 
@@ -82,12 +82,11 @@
 
           <div id="tripView" class="trip-view" hidden>
             <section class="trip-head">
-              <div class="trip-hero">
-                <div>
-                  <p class="eyebrow">旅行日記</p>
-                  <h2 id="tripHeroTitle">旅行日記</h2>
-                  <p id="tripHeroMeta">載入中</p>
-                </div>
+              <div class="trip-hero" aria-label="日記封面照片"></div>
+              <div class="trip-title-below-cover">
+                <p class="eyebrow">旅行日記</p>
+                <h2 id="tripHeroTitle">旅行日記</h2>
+                <p id="tripHeroMeta">載入中</p>
               </div>
 
               <details class="trip-edit">
@@ -131,7 +130,7 @@
               <button class="tab" type="button" data-tab="todos">待辦</button>
               <button class="tab" type="button" data-tab="wishes">許願</button>
               <button class="tab" type="button" data-tab="recommendations">附近熱門</button>
-              <button class="tab" type="button" data-tab="members">成員</button>
+              <button class="tab" type="button" data-tab="members">編輯者</button>
             </div>
 
             <section id="itineraryPanel" class="panel" data-panel="itinerary"></section>
@@ -145,6 +144,10 @@
     </div>
 
     <button id="quickAddButton" class="quick-add" type="button" hidden>＋</button>
+    <div id="photoViewer" class="photo-viewer" hidden>
+      <button class="photo-viewer-close" type="button" data-photo-close aria-label="關閉照片">×</button>
+      <img id="photoViewerImage" alt="完整行程照片" />
+    </div>
     <div id="toast" class="toast" role="status" hidden></div>
   </body>
 </html>

@@ -10,6 +10,8 @@ const state = {
   recommendationTripId: null
 };
 
+const KNOWN_INVITES_KEY = "xue-family-known-trip-invites";
+
 const els = {
   userBadge: document.querySelector("#userBadge"),
   inviteButton: document.querySelector("#inviteButton"),
@@ -65,6 +67,7 @@ async function init() {
   state.isCreating = params.has("new");
 
   if (tripId && inviteToken) {
+    rememberInvite(tripId, inviteToken);
     await joinTripFromInvite(tripId, inviteToken);
   }
 
@@ -95,6 +98,7 @@ function bindEvents() {
       }
     });
 
+    rememberInvite(trip.id, trip.inviteToken);
     els.createTripForm.reset();
     renderNewDiaryCoverPreview();
     state.isCreating = false;
@@ -326,6 +330,24 @@ function bindEvents() {
     renderPanels();
     toast("已加入行程");
   });
+
+  document.body.addEventListener("click", (event) => {
+    const closeButton = event.target.closest("[data-photo-close]");
+    const viewer = document.querySelector("#photoViewer");
+    if (closeButton || event.target === viewer) {
+      closePhotoViewer();
+      return;
+    }
+
+    const photoButton = event.target.closest("[data-photo-open]");
+    if (!photoButton) return;
+    openPhotoViewer(photoButton.dataset.photoOpen);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closePhotoViewer();
+  });
+
 }
 
 async function resolveUser() {
@@ -342,7 +364,7 @@ async function resolveUser() {
     const profile = await window.liff.getProfile();
     return {
       lineUserId: profile.userId,
-      displayName: profile.displayName || "LINE 旅伴"
+      displayName: profile.userId
     };
   } catch (error) {
     console.warn("LIFF init failed, using guest mode.", error);
@@ -352,12 +374,17 @@ async function resolveUser() {
 
 function guestUser() {
   const key = "xue-family-guest-id";
-  let id = localStorage.getItem(key);
-  if (!id) {
+  let id = "";
+  try {
+    id = localStorage.getItem(key) || "";
+    if (!id) {
+      id = `guest-${cryptoRandom()}`;
+      localStorage.setItem(key, id);
+    }
+  } catch {
     id = `guest-${cryptoRandom()}`;
-    localStorage.setItem(key, id);
   }
-  return { lineUserId: id, displayName: "訪客旅伴" };
+  return { lineUserId: id, displayName: id };
 }
 
 async function joinTripFromInvite(tripId, inviteToken) {
@@ -366,6 +393,7 @@ async function joinTripFromInvite(tripId, inviteToken) {
       method: "POST",
       body: { inviteToken, actor: state.user }
     });
+    rememberInvite(tripId, inviteToken);
     state.currentTrip = trip;
     toast(`已加入「${trip.title}」`);
   } catch (error) {
@@ -374,8 +402,14 @@ async function joinTripFromInvite(tripId, inviteToken) {
 }
 
 async function loadTrips() {
-  const params = new URLSearchParams({ userId: state.user.lineUserId });
+  const params = new URLSearchParams({
+    userId: state.user.lineUserId,
+    includeAll: "1"
+  });
+  const invites = knownInviteParam();
+  if (invites) params.set("invites", invites);
   const { trips } = await api(`/api/trips?${params}`);
+  trips.forEach((trip) => rememberInvite(trip.id, trip.inviteToken));
   state.trips = trips;
   renderTripList();
 }
@@ -385,8 +419,10 @@ async function selectTrip(tripId, inviteToken = "") {
     userId: state.user.lineUserId,
     displayName: state.user.displayName
   });
+  params.set("allowPublic", "1");
   if (inviteToken) params.set("invite", inviteToken);
   const { trip } = await api(`/api/trips/${tripId}?${params}`);
+  if (inviteToken) rememberInvite(tripId, inviteToken);
   state.isCreating = false;
   state.currentTrip = trip;
   await loadRecommendations(true);
@@ -400,6 +436,7 @@ async function refreshCurrentTrip() {
     userId: state.user.lineUserId,
     displayName: state.user.displayName
   });
+  params.set("allowPublic", "1");
   const { trip } = await api(`/api/trips/${state.currentTrip.id}?${params}`);
   state.currentTrip = trip;
   render();
@@ -475,7 +512,7 @@ function render() {
 }
 
 function renderUser() {
-  els.userBadge.textContent = state.user?.displayName || "旅伴";
+  els.userBadge.textContent = state.user?.lineUserId ? `編輯：${state.user.lineUserId}` : "未取得 LINE ID";
 }
 
 function renderTripList() {
@@ -484,16 +521,18 @@ function renderTripList() {
     return;
   }
   els.tripList.innerHTML = state.trips
-    .map(
-      (trip, index) => `
-        <button class="trip-link cover-${index % 4} ${state.currentTrip?.id === trip.id ? "is-active" : ""}" type="button" data-trip-id="${escapeAttr(trip.id)}">
-          <span class="trip-cover">
-            <strong>${escapeHtml(trip.title)}</strong>
-          </span>
+    .map((trip, index) => {
+      const coverStyle = trip.coverPhotoUrl
+        ? ` style="background-image: url('${escapeAttr(cssUrl(trip.coverPhotoUrl))}')"`
+        : "";
+      return `
+        <button class="trip-link cover-${index % 4} ${state.currentTrip?.id === trip.id ? "is-active" : ""} ${trip.coverPhotoUrl ? "has-cover-photo" : ""}" type="button" data-trip-id="${escapeAttr(trip.id)}">
+          <span class="trip-cover"${coverStyle} aria-label="${escapeAttr(trip.title)}封面"></span>
+          <strong class="trip-list-title">${escapeHtml(trip.title)}</strong>
           <span>${escapeHtml(tripMeta(trip))}</span>
         </button>
-      `
-    )
+      `;
+    })
     .join("");
 }
 
@@ -503,7 +542,6 @@ function renderStats() {
   const transportCount = trip.itinerary.filter((item) => item.type === "transport").length;
   const lodgingCount = trip.itinerary.filter((item) => item.type === "lodging").length;
   const openTodoCount = trip.todos.filter((todo) => !["done", "not_needed"].includes(todo.status)).length;
-  const memberNames = trip.members.map((member) => member.displayName).join("、") || "尚未加入";
   els.tripStats.innerHTML = [
     stat("總預估花費", money(budget)),
     stat("行程", `${trip.itinerary.length} 筆`),
@@ -511,9 +549,8 @@ function renderStats() {
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
     stat("同行人數", trip.peopleCount || "未填"),
-    stat("編輯成員", `${trip.members.length} 位`),
-    stat("成員名單", memberNames),
-    stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
+    stat("建立者", actorName(trip.createdBy)),
+    stat("最後編輯", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
 }
 
@@ -539,7 +576,7 @@ function renderNewDiaryCoverPreview() {
 function tripMeta(trip) {
   const dates = trip.startDate || trip.endDate ? `${trip.startDate || "未定"} 到 ${trip.endDate || "未定"}` : trip.area;
   const people = trip.peopleCount ? `同行 ${trip.peopleCount}` : "同行人數未填";
-  return `${dates} · ${trip.itinerary.length} 筆行程 · ${people} · 編輯成員 ${trip.members.length} 位`;
+  return `${dates} · ${trip.itinerary.length} 筆行程 · ${people}`;
 }
 
 function renderItinerary() {
@@ -641,10 +678,11 @@ function itineraryFields(item = {}) {
       <input name="place" autocomplete="off" placeholder="宜蘭、羅東、台北車站" value="${escapeAttr(item.place || "")}" />
     </label>
     <label class="wide">
-      行程照片
+      新增行程照片
       <input name="photoFiles" type="file" accept="image/*" multiple />
       <input type="hidden" name="existingPhotoUrls" value="${escapeAttr((item.photoUrls || []).join("\n"))}" />
     </label>
+    ${photoManager(item.photoUrls)}
 
     <section class="type-fields full" data-type-fields="transport">
       <label class="full">
@@ -887,8 +925,8 @@ function renderMembers() {
   const trip = state.currentTrip;
   els.membersPanel.innerHTML = `
     <div class="member-summary">
-      <strong>編輯成員 ${trip.members.length} 位</strong>
-      <span>${escapeHtml(trip.members.map((member) => member.displayName).join("、"))}</span>
+      <strong>編輯者紀錄</strong>
+      <span>這裡只記錄誰建立、誰編輯過。</span>
     </div>
     <div class="member-list">
       ${trip.members
@@ -896,10 +934,10 @@ function renderMembers() {
           (member) => `
             <article class="member-row">
               <div>
-                <strong>${escapeHtml(member.displayName)}</strong>
-                <small>加入：${formatDateTime(member.joinedAt)}</small>
+                <strong>${escapeHtml(member.lineUserId || member.displayName)}</strong>
+                <small>加入日記本：${formatDateTime(member.joinedAt)}</small>
               </div>
-              <span class="muted">${member.role === "owner" ? "建立者" : "協作者"}</span>
+              <span class="muted">${member.role === "owner" ? "建立者" : "編輯者"}</span>
             </article>
           `
         )
@@ -917,11 +955,29 @@ function renderPanels() {
   });
 }
 
+function openPhotoViewer(url) {
+  const viewer = document.querySelector("#photoViewer");
+  const image = document.querySelector("#photoViewerImage");
+  if (!viewer || !image || !url) return;
+  image.src = url;
+  viewer.hidden = false;
+  document.body.classList.add("photo-viewer-open");
+}
+
+function closePhotoViewer() {
+  const viewer = document.querySelector("#photoViewer");
+  const image = document.querySelector("#photoViewerImage");
+  if (!viewer || viewer.hidden) return;
+  viewer.hidden = true;
+  if (image) image.src = "";
+  document.body.classList.remove("photo-viewer-open");
+}
+
 async function inviteCurrentTrip() {
   const trip = state.currentTrip;
   if (!trip) return;
   const url = inviteUrl(trip);
-  const text = `一起編輯「${trip.title}」旅行日記：${url}`;
+  const text = `分享「${trip.title}」旅行日記：${url}`;
 
   if (
     window.liff &&
@@ -930,7 +986,7 @@ async function inviteCurrentTrip() {
     window.liff.isApiAvailable("shareTargetPicker")
   ) {
     const result = await window.liff.shareTargetPicker([{ type: "text", text }]);
-    toast(result ? "已送出邀請" : "已取消邀請");
+    toast(result ? "已送出分享" : "已取消分享");
     return;
   }
 
@@ -941,11 +997,11 @@ async function inviteCurrentTrip() {
 
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(url);
-    toast("邀請連結已複製");
+    toast("日記連結已複製");
     return;
   }
 
-  window.prompt("邀請連結", url);
+  window.prompt("日記連結", url);
 }
 
 function inviteUrl(trip) {
@@ -953,6 +1009,31 @@ function inviteUrl(trip) {
   if (state.config?.liffId) return `https://liff.line.me/${state.config.liffId}?${params}`;
   const baseUrl = (state.config?.baseUrl || location.origin).replace(/\/$/, "");
   return `${baseUrl}/app?${params}`;
+}
+
+function knownInvites() {
+  try {
+    const values = JSON.parse(localStorage.getItem(KNOWN_INVITES_KEY) || "[]");
+    return Array.isArray(values) ? values.filter((value) => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function knownInviteParam() {
+  return knownInvites().slice(0, 30).join(",");
+}
+
+function rememberInvite(tripId, inviteToken) {
+  if (!tripId || !inviteToken) return;
+  const entry = `${tripId}:${inviteToken}`;
+  const next = [entry, ...knownInvites().filter((value) => !value.startsWith(`${tripId}:`))]
+    .slice(0, 30);
+  try {
+    localStorage.setItem(KNOWN_INVITES_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage may be unavailable in some restricted in-app browsers.
+  }
 }
 
 async function uploadImageFile(input) {
@@ -1002,17 +1083,22 @@ async function api(path, options = {}) {
 }
 
 async function formObject(form) {
-  const value = Object.fromEntries(new FormData(form).entries());
+  const formData = new FormData(form);
+  const value = Object.fromEntries(formData.entries());
   const photoFileInput = form.querySelector("input[name='photoFiles']");
   if (photoFileInput) {
-    const existing = String(value.existingPhotoUrls || "")
-      .split(/[\s,，\n]+/)
-      .map((url) => url.trim())
-      .filter(Boolean);
+    const keepInputs = Array.from(form.querySelectorAll("input[name='keepPhotoUrls']"));
+    const existing = keepInputs.length
+      ? keepInputs.filter((input) => input.checked).map((input) => input.value)
+      : String(value.existingPhotoUrls || "")
+          .split(/[\s,，\n]+/)
+          .map((url) => url.trim())
+          .filter(Boolean);
     const uploaded = await uploadImageFiles(photoFileInput);
     value.photoUrls = [...existing, ...uploaded];
     delete value.photoFiles;
     delete value.existingPhotoUrls;
+    delete value.keepPhotoUrls;
   }
   return value;
 }
@@ -1170,11 +1256,34 @@ function auditLine(entry) {
 }
 
 function actorName(actor) {
-  return actor?.displayName || actor?.name || "旅伴";
+  return actor?.lineUserId || actor?.userId || actor?.displayName || actor?.name || "未取得 LINE ID";
 }
 
 function joinParts(parts, separator) {
   return parts.filter(Boolean).join(separator);
+}
+
+function photoManager(photoUrls = []) {
+  if (!photoUrls.length) return "";
+  return `
+    <div class="photo-manager wide">
+      <strong>已放入的照片</strong>
+      <small>預設會保留。取消勾選後按「儲存修改」，就會從這筆行程移除。</small>
+      <div class="photo-manager-grid">
+        ${photoUrls
+          .map(
+            (url, index) => `
+              <label class="photo-keep-card">
+                <input type="checkbox" name="keepPhotoUrls" value="${escapeAttr(url)}" checked />
+                <img src="${escapeAttr(url)}" alt="已放入照片 ${index + 1}" loading="lazy" />
+                <span>保留這張</span>
+              </label>
+            `
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
 }
 
 function photoStrip(photoUrls = []) {
@@ -1182,8 +1291,14 @@ function photoStrip(photoUrls = []) {
   return `
     <div class="photo-strip">
       ${photoUrls
-        .slice(0, 4)
-        .map((url) => `<img src="${escapeAttr(url)}" alt="行程照片" loading="lazy" />`)
+        .slice(0, 8)
+        .map(
+          (url) => `
+            <button class="photo-thumb" type="button" data-photo-open="${escapeAttr(url)}">
+              <img src="${escapeAttr(url)}" alt="行程照片，點一下看完整照片" loading="lazy" />
+            </button>
+          `
+        )
         .join("")}
     </div>
   `;
@@ -1232,6 +1347,9 @@ function cssUrl(value) {
 
 function cryptoRandom() {
   const array = new Uint32Array(2);
-  crypto.getRandomValues(array);
-  return Array.from(array, (part) => part.toString(16)).join("");
+  if (window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(array);
+    return Array.from(array, (part) => part.toString(16)).join("");
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
 }
