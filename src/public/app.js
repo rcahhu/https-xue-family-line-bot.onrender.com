@@ -10,6 +10,8 @@ const state = {
   recommendationTripId: null
 };
 
+const KNOWN_INVITES_KEY = "xue-family-known-trip-invites";
+
 const els = {
   userBadge: document.querySelector("#userBadge"),
   inviteButton: document.querySelector("#inviteButton"),
@@ -65,6 +67,7 @@ async function init() {
   state.isCreating = params.has("new");
 
   if (tripId && inviteToken) {
+    rememberInvite(tripId, inviteToken);
     await joinTripFromInvite(tripId, inviteToken);
   }
 
@@ -366,6 +369,7 @@ async function joinTripFromInvite(tripId, inviteToken) {
       method: "POST",
       body: { inviteToken, actor: state.user }
     });
+    rememberInvite(tripId, inviteToken);
     state.currentTrip = trip;
     toast(`已加入「${trip.title}」`);
   } catch (error) {
@@ -375,6 +379,8 @@ async function joinTripFromInvite(tripId, inviteToken) {
 
 async function loadTrips() {
   const params = new URLSearchParams({ userId: state.user.lineUserId });
+  const invites = knownInviteParam();
+  if (invites) params.set("invites", invites);
   const { trips } = await api(`/api/trips?${params}`);
   state.trips = trips;
   renderTripList();
@@ -387,6 +393,7 @@ async function selectTrip(tripId, inviteToken = "") {
   });
   if (inviteToken) params.set("invite", inviteToken);
   const { trip } = await api(`/api/trips/${tripId}?${params}`);
+  if (inviteToken) rememberInvite(tripId, inviteToken);
   state.isCreating = false;
   state.currentTrip = trip;
   await loadRecommendations(true);
@@ -510,8 +517,9 @@ function renderStats() {
     stat("待辦缺口", `${openTodoCount} 個`),
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
-    stat("同伴", `${trip.members.length} 人`),
-    stat("同伴名單", memberNames),
+    stat("同行人數", trip.peopleCount || "未填"),
+    stat("編輯成員", `${trip.members.length} 位`),
+    stat("成員名單", memberNames),
     stat("最後修改", `${actorName(trip.updatedBy)} · ${formatDateTime(trip.updatedAt)}`)
   ].join("");
 }
@@ -537,7 +545,8 @@ function renderNewDiaryCoverPreview() {
 
 function tripMeta(trip) {
   const dates = trip.startDate || trip.endDate ? `${trip.startDate || "未定"} 到 ${trip.endDate || "未定"}` : trip.area;
-  return `${dates} · ${trip.itinerary.length} 筆行程 · ${trip.members.length} 位同伴`;
+  const people = trip.peopleCount ? `同行 ${trip.peopleCount}` : "同行人數未填";
+  return `${dates} · ${trip.itinerary.length} 筆行程 · ${people} · 編輯成員 ${trip.members.length} 位`;
 }
 
 function renderItinerary() {
@@ -885,7 +894,7 @@ function renderMembers() {
   const trip = state.currentTrip;
   els.membersPanel.innerHTML = `
     <div class="member-summary">
-      <strong>同伴 ${trip.members.length} 人</strong>
+      <strong>編輯成員 ${trip.members.length} 位</strong>
       <span>${escapeHtml(trip.members.map((member) => member.displayName).join("、"))}</span>
     </div>
     <div class="member-list">
@@ -897,7 +906,7 @@ function renderMembers() {
                 <strong>${escapeHtml(member.displayName)}</strong>
                 <small>加入：${formatDateTime(member.joinedAt)}</small>
               </div>
-              <span class="muted">${member.role === "owner" ? "建立者" : "同伴"}</span>
+              <span class="muted">${member.role === "owner" ? "建立者" : "協作者"}</span>
             </article>
           `
         )
@@ -951,6 +960,31 @@ function inviteUrl(trip) {
   if (state.config?.liffId) return `https://liff.line.me/${state.config.liffId}?${params}`;
   const baseUrl = (state.config?.baseUrl || location.origin).replace(/\/$/, "");
   return `${baseUrl}/app?${params}`;
+}
+
+function knownInvites() {
+  try {
+    const values = JSON.parse(localStorage.getItem(KNOWN_INVITES_KEY) || "[]");
+    return Array.isArray(values) ? values.filter((value) => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function knownInviteParam() {
+  return knownInvites().slice(0, 30).join(",");
+}
+
+function rememberInvite(tripId, inviteToken) {
+  if (!tripId || !inviteToken) return;
+  const entry = `${tripId}:${inviteToken}`;
+  const next = [entry, ...knownInvites().filter((value) => !value.startsWith(`${tripId}:`))]
+    .slice(0, 30);
+  try {
+    localStorage.setItem(KNOWN_INVITES_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage may be unavailable in some restricted in-app browsers.
+  }
 }
 
 async function uploadImageFile(input) {
