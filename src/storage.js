@@ -15,9 +15,9 @@ export class HttpError extends Error {
 }
 
 export class TripStore {
-  constructor(dataFile) {
+  constructor(dataFile, options = {}) {
     this.dataFile = dataFile;
-    this.ready = this.ensureDatabase();
+    this.ready = options.autoEnsure === false ? Promise.resolve() : this.ensureDatabase();
     this.writeQueue = Promise.resolve();
   }
 
@@ -418,6 +418,200 @@ export class TripStore {
     const trips = await this.listTrips({ userId, sourceKey });
     return trips[0] || null;
   }
+}
+
+export function createTripStore(config = {}) {
+  if (shouldUseSupabase(config)) {
+    return new SupabaseTripStore({
+      supabaseUrl: config.supabaseUrl,
+      serviceRoleKey: config.supabaseServiceRoleKey,
+      tableName: config.supabaseStateTable || "xuebot_state",
+      stateId: config.supabaseStateId || "default",
+      localSeedFile: config.dataFile
+    });
+  }
+  return new TripStore(config.dataFile);
+}
+
+export function createSupabasePhotoUploader(config = {}) {
+  if (!shouldUseSupabase(config)) return null;
+  return new SupabasePhotoUploader({
+    supabaseUrl: config.supabaseUrl,
+    serviceRoleKey: config.supabaseServiceRoleKey,
+    bucket: config.supabaseStorageBucket || "xuebot-photos"
+  });
+}
+
+function shouldUseSupabase(config = {}) {
+  const backend = cleanText(config.storageBackend || process.env.STORAGE_BACKEND || "").toLowerCase();
+  const hasSupabase = Boolean(config.supabaseUrl && config.supabaseServiceRoleKey);
+  if (backend === "json") return false;
+  if (backend === "supabase" && !hasSupabase) {
+    throw new Error("STORAGE_BACKEND=supabase 時，必須同時設定 SUPABASE_URL 與 SUPABASE_SERVICE_ROLE_KEY");
+  }
+  return hasSupabase;
+}
+
+class SupabaseTripStore extends TripStore {
+  constructor({ supabaseUrl, serviceRoleKey, tableName, stateId, localSeedFile }) {
+    super("supabase", { autoEnsure: false });
+    this.client = new SupabaseRestClient({ supabaseUrl, serviceRoleKey });
+    this.tableName = tableName;
+    this.stateId = stateId;
+    this.localSeedFile = localSeedFile;
+    this.ready = this.ensureDatabase();
+  }
+
+  async ensureDatabase() {
+    const existing = await this.fetchState({ allowMissing: true });
+    if (existing) return;
+    const seed = await this.readLocalSeed();
+    await this.write(seed || { ...emptyDatabase, trips: [] });
+  }
+
+  async readLocalSeed() {
+    if (!this.localSeedFile) return null;
+    try {
+      const raw = await fs.readFile(this.localSeedFile, "utf8");
+      const db = JSON.parse(raw || "{}");
+      if (Array.isArray(db.trips) && db.trips.length > 0) {
+        db.version = Math.max(Number(db.version || 1), emptyDatabase.version);
+        db.trips.forEach(hydrateTrip);
+        return db;
+      }
+    } catch {
+      // No local seed available. This is normal on Render Free.
+    }
+    return null;
+  }
+
+  async fetchState({ allowMissing = false } = {}) {
+    const path = `/rest/v1/${encodeURIComponent(this.tableName)}?id=eq.${encodeURIComponent(this.stateId)}&select=data&limit=1`;
+    const rows = await this.client.requestJson(path, { method: "GET" });
+    if (!Array.isArray(rows) || rows.length === 0) {
+      if (allowMissing) return null;
+      throw new HttpError(500, "Supabase 尚未建立日記資料列");
+    }
+    const db = rows[0]?.data || { ...emptyDatabase, trips: [] };
+    if (!Array.isArray(db.trips)) db.trips = [];
+    db.version = Math.max(Number(db.version || 1), emptyDatabase.version);
+    db.trips.forEach(hydrateTrip);
+    return db;
+  }
+
+  async read() {
+    await this.ready;
+    return this.fetchState();
+  }
+
+  async write(db) {
+    const normalized = {
+      ...db,
+      version: Math.max(Number(db.version || 1), emptyDatabase.version),
+      trips: Array.isArray(db.trips) ? db.trips : []
+    };
+    const path = `/rest/v1/${encodeURIComponent(this.tableName)}?on_conflict=id`;
+    await this.client.requestJson(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify({
+        id: this.stateId,
+        data: normalized,
+        updated_at: new Date().toISOString()
+      })
+    });
+  }
+}
+
+class SupabasePhotoUploader {
+  constructor({ supabaseUrl, serviceRoleKey, bucket }) {
+    this.client = new SupabaseRestClient({ supabaseUrl, serviceRoleKey });
+    this.bucket = bucket;
+  }
+
+  async upload({ data, contentType, filename }) {
+    const safeFilename = filename.replace(/[^A-Za-z0-9._-]/g, "_");
+    const today = new Date().toISOString().slice(0, 10);
+    const objectPath = `${today}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}-${safeFilename}`;
+    await this.client.requestRaw(`/storage/v1/object/${encodePath(this.bucket)}/${encodePath(objectPath)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": contentType,
+        "x-upsert": "false"
+      },
+      body: data
+    });
+    return this.publicUrl(objectPath);
+  }
+
+  publicUrl(objectPath) {
+    return `${this.client.supabaseUrl}/storage/v1/object/public/${encodePath(this.bucket)}/${encodePath(objectPath)}`;
+  }
+}
+
+class SupabaseRestClient {
+  constructor({ supabaseUrl, serviceRoleKey }) {
+    this.supabaseUrl = String(supabaseUrl || "").replace(/\/+$/, "");
+    this.serviceRoleKey = serviceRoleKey;
+    if (!this.supabaseUrl || !this.serviceRoleKey) {
+      throw new Error("Supabase URL 或 Service Role Key 尚未設定");
+    }
+  }
+
+  baseHeaders(extra = {}) {
+    return {
+      apikey: this.serviceRoleKey,
+      Authorization: `Bearer ${this.serviceRoleKey}`,
+      ...extra
+    };
+  }
+
+  async requestJson(pathname, options = {}) {
+    const response = await this.request(pathname, {
+      ...options,
+      headers: this.baseHeaders(options.headers)
+    });
+    if (response.status === 204) return null;
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  }
+
+  async requestRaw(pathname, options = {}) {
+    return this.request(pathname, {
+      ...options,
+      headers: this.baseHeaders(options.headers)
+    });
+  }
+
+  async request(pathname, options = {}) {
+    const response = await fetch(`${this.supabaseUrl}${pathname}`, options);
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const message = parseSupabaseError(text) || response.statusText || "Supabase request failed";
+      throw new HttpError(response.status >= 400 && response.status < 500 ? 400 : 502, `Supabase 錯誤：${message}`);
+    }
+    return response;
+  }
+}
+
+function parseSupabaseError(text) {
+  if (!text) return "";
+  try {
+    const json = JSON.parse(text);
+    return json.message || json.error || json.msg || text;
+  } catch {
+    return text.slice(0, 300);
+  }
+}
+
+function encodePath(pathname) {
+  return String(pathname)
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 export function normalizeActor(actor = {}) {

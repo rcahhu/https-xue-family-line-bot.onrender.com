@@ -8,7 +8,7 @@ import { DEFAULT_OPENAI_MODEL } from "./ai.js";
 import { DIARY_IMPORT_VERSION } from "./diaryImport.js";
 import { handleLineEvent, replyLine, textMessage } from "./line.js";
 import { getRecommendations } from "./recommendations.js";
-import { HttpError, normalizeActor, TripStore } from "./storage.js";
+import { createSupabasePhotoUploader, createTripStore, HttpError, normalizeActor } from "./storage.js";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 await loadEnvFile(path.join(rootDir, ".env"));
@@ -25,11 +25,18 @@ const config = {
   openaiEnableWebSearch: process.env.OPENAI_ENABLE_WEB_SEARCH !== "false",
   openaiMaxOutputTokens: Number(process.env.OPENAI_MAX_OUTPUT_TOKENS || 900),
   openaiTimeoutMs: Number(process.env.OPENAI_TIMEOUT_MS || 15000),
-  dataFile: process.env.DATA_FILE || path.join(rootDir, "data", "trips.json")
+  dataFile: process.env.DATA_FILE || path.join(rootDir, "data", "trips.json"),
+  storageBackend: process.env.STORAGE_BACKEND || "",
+  supabaseUrl: process.env.SUPABASE_URL || "",
+  supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
+  supabaseStateTable: process.env.SUPABASE_STATE_TABLE || "xuebot_state",
+  supabaseStateId: process.env.SUPABASE_STATE_ID || "default",
+  supabaseStorageBucket: process.env.SUPABASE_STORAGE_BUCKET || "xuebot-photos"
 };
 
 const publicDir = path.join(rootDir, "public");
-const store = new TripStore(config.dataFile);
+const store = createTripStore(config);
+const photoUploader = createSupabasePhotoUploader(config);
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -55,7 +62,12 @@ async function route(req, res) {
   }
 
   if (req.method === "GET" && pathname === "/health") {
-    return sendJson(res, { ok: true, appName: config.appName, diaryImportVersion: DIARY_IMPORT_VERSION });
+    return sendJson(res, {
+      ok: true,
+      appName: config.appName,
+      diaryImportVersion: DIARY_IMPORT_VERSION,
+      storage: photoUploader ? "supabase" : "json"
+    });
   }
 
   if (req.method === "POST" && pathname === "/webhook") {
@@ -230,11 +242,26 @@ async function handleUpload(req, res) {
     throw new HttpError(400, "只能上傳圖片");
   }
 
+  const extension = extensionForMime(upload.contentType);
+  const originalName = upload.filename || `photo${extension}`;
+  const filename = hasImageExtension(originalName)
+    ? originalName
+    : `${originalName.replace(/\.[^.]+$/, "")}${extension}`;
+
+  if (photoUploader) {
+    const url = await photoUploader.upload({
+      data: upload.data,
+      contentType: upload.contentType,
+      filename
+    });
+    return sendJson(res, { url }, 201);
+  }
+
   const uploadsDir = path.join(publicDir, "uploads");
   await fs.mkdir(uploadsDir, { recursive: true });
-  const filename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${extensionForMime(upload.contentType)}`;
-  await fs.writeFile(path.join(uploadsDir, filename), upload.data);
-  return sendJson(res, { url: `/uploads/${filename}` }, 201);
+  const localFilename = `${Date.now()}-${crypto.randomBytes(6).toString("hex")}${extension}`;
+  await fs.writeFile(path.join(uploadsDir, localFilename), upload.data);
+  return sendJson(res, { url: `/uploads/${localFilename}` }, 201);
 }
 
 async function handleItineraryApi(req, res, tripId, parts) {
@@ -355,7 +382,10 @@ async function readMultipartFile(req, limit) {
     if (data.subarray(-2).toString() === "\r\n") data = data.subarray(0, -2);
     if (!/filename=/i.test(headerText)) continue;
     const contentType = headerText.match(/content-type:\s*([^\r\n]+)/i)?.[1]?.trim() || "application/octet-stream";
-    return { contentType, data };
+    const filename = decodeMultipartFilename(headerText.match(/filename\*=UTF-8''([^;\r\n]+)/i)?.[1]) ||
+      decodeMultipartFilename(headerText.match(/filename="([^"\r\n]*)"/i)?.[1]) ||
+      "photo";
+    return { contentType, data, filename };
   }
   return null;
 }
@@ -441,6 +471,19 @@ function contentType(extname) {
     ".svg": "image/svg+xml"
   };
   return types[extname] || "application/octet-stream";
+}
+
+function hasImageExtension(filename) {
+  return /\.(jpe?g|png|gif|webp)$/i.test(filename || "");
+}
+
+function decodeMultipartFilename(value) {
+  if (!value) return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function extensionForMime(mimeType) {
