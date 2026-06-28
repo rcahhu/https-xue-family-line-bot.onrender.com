@@ -1403,6 +1403,65 @@ h3 {
   }
 }
 
+
+.trip-page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px 0;
+}
+
+.invite-family-button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 16px;
+  color: #fff;
+  background: var(--brand);
+  font-weight: 900;
+  box-shadow: 0 10px 18px rgba(35, 148, 103, 0.18);
+}
+
+.invite-family-button:disabled {
+  opacity: 0.45;
+}
+
+.member-invite-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-color: rgba(45, 173, 120, 0.28);
+  background: linear-gradient(180deg, #f0fbf5, #ffffff);
+}
+
+.member-invite-card .primary-button {
+  width: max-content;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .trip-page-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .trip-page-actions .back-to-list-button,
+  .trip-page-actions .invite-family-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .member-invite-card {
+    grid-template-columns: 1fr;
+  }
+
+  .member-invite-card .primary-button {
+    width: 100%;
+  }
+}
+
 /* 2026-06-28: once a diary is opened, hide the notebook list/header chrome.
    The notebook list is only shown on /app; itinerary add/edit uses a clean full-screen panel. */
 .back-to-list-button {
@@ -1536,4 +1595,8 @@ h3 {
   .identity-actions {
     flex-direction: column-reverse;
   }
+}
+
+.trip-page-actions .back-to-list-button {
+  margin: 0;
 }

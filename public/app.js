@@ -19,6 +19,7 @@ const DISPLAY_NAME_KEY_PREFIX = "xue-family-display-name:";
 const els = {
   userBadge: document.querySelector("#userBadge"),
   inviteButton: document.querySelector("#inviteButton"),
+  tripInviteButton: document.querySelector("#tripInviteButton"),
   deleteTripButton: document.querySelector("#deleteTripButton"),
   createTripForm: document.querySelector("#createTripForm"),
   newDiaryView: document.querySelector("#newDiaryView"),
@@ -185,9 +186,16 @@ function bindEvents() {
   });
 
   els.inviteButton.addEventListener("click", () => inviteCurrentTrip().catch(showError));
+  els.tripInviteButton.addEventListener("click", () => inviteCurrentTrip().catch(showError));
   els.quickAddButton.addEventListener("click", () => {
     if (!state.currentTrip) return;
     openItineraryCreateView();
+  });
+
+  els.membersPanel.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-invite-current]");
+    if (!button) return;
+    inviteCurrentTrip().catch(showError);
   });
 
   els.itineraryPanel.addEventListener("submit", async (event) => {
@@ -691,6 +699,7 @@ function render() {
   els.emptyState.hidden = hasTrip || isCreating;
   els.tripView.hidden = !hasTrip || isCreating;
   els.inviteButton.disabled = !hasTrip;
+  els.tripInviteButton.disabled = !hasTrip;
   els.quickAddButton.hidden = !hasTrip || isCreating;
   if (!hasTrip || isCreating) return;
 
@@ -1266,6 +1275,13 @@ function recommendationItem(item) {
 function renderMembers() {
   const trip = state.currentTrip;
   els.membersPanel.innerHTML = `
+    <div class="member-summary member-invite-card">
+      <div>
+        <strong>邀請家人加入日記本</strong>
+        <span>分享邀請連結後，家人第一次開啟會加入這本日記，之後就能一起新增、修改行程。</span>
+      </div>
+      <button class="primary-button" type="button" data-invite-current>邀請家人</button>
+    </div>
     <div class="member-summary">
       <strong>編輯者紀錄</strong>
       <span>這裡只記錄誰建立、誰編輯過。</span>
@@ -1319,7 +1335,7 @@ async function inviteCurrentTrip() {
   const trip = state.currentTrip;
   if (!trip) return;
   const url = inviteUrl(trip);
-  const text = `分享「${trip.title}」旅行日記：${url}`;
+  const text = `邀請你加入「${trip.title}」旅行日記，一起新增行程、照片與分帳：${url}`;
 
   if (
     window.liff &&
