@@ -766,8 +766,14 @@ function normalizeItineraryItem(item = {}) {
     photoUrls: normalizePhotoUrls(item.photoUrls),
     ticketStatus: normalizeStatus(item.ticketStatus),
     reservationStatus: normalizeStatus(item.reservationStatus),
+    completed: normalizeBoolean(item.completed),
     price: normalizePrice(item.price),
     currency: cleanText(item.currency || "TWD") || "TWD",
+    payer: cleanText(item.payer),
+    payerName: cleanText(item.payerName || item.payer),
+    splitMode: normalizeSplitMode(item.splitMode),
+    paidPeople: cleanText(item.paidPeople),
+    unpaidPeople: cleanText(item.unpaidPeople),
     transportMode: cleanText(item.transportMode),
     transportSummary: cleanText(item.transportSummary),
     transportName: cleanText(item.transportName),
@@ -815,6 +821,11 @@ function normalizeItineraryType(value) {
 function normalizeStatus(value) {
   const allowed = new Set(["none", "needed", "done"]);
   return allowed.has(value) ? value : "none";
+}
+
+function normalizeSplitMode(value) {
+  const allowed = new Set(["equal", "payer_only", "custom"]);
+  return allowed.has(value) ? value : "equal";
 }
 
 function normalizeTodoCategory(value) {
@@ -866,6 +877,12 @@ function normalizePrice(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return 0;
   return Math.round(number);
+}
+
+function normalizeBoolean(value) {
+  if (value === true) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "on", "done", "completed", "完成", "已完成"].includes(text);
 }
 
 function sortItinerary(trip) {

@@ -1219,3 +1219,109 @@ h3 {
 .photo-viewer-open {
   overflow: hidden;
 }
+
+.entry-money-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.entry-money-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.entry-money-title span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.compact-grid {
+  margin-top: 8px;
+}
+
+.payment-line {
+  color: #6f746f;
+  font-weight: 650;
+}
+
+.entry-row .entry-price:empty {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .entry-money-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+/* 2026-06-28: itinerary completion toggle */
+.completion-toggle {
+  display: inline-flex;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--brand-dark);
+  background: var(--surface-soft);
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.completion-toggle input {
+  width: auto;
+  accent-color: var(--brand);
+}
+
+.completed-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #fff;
+  background: var(--brand);
+  font-size: 0.78rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.entry-row.is-completed {
+  background: linear-gradient(90deg, rgba(82, 196, 141, 0.08), #fff 36%);
+}
+
+.entry-row.is-completed .row-title strong {
+  color: #5e6b64;
+}
+
+.entry-row.is-completed .entry-icon {
+  background: var(--brand);
+}
+
+@media (max-width: 880px) {
+  .completion-toggle {
+    min-height: 38px;
+  }
+
+  .entry-side {
+    grid-template-columns: max-content max-content max-content max-content;
+  }
+}
+
+@media (max-width: 420px) {
+  .entry-side {
+    grid-template-columns: max-content max-content;
+    grid-auto-flow: row;
+  }
+}

@@ -203,6 +203,12 @@ function bindEvents() {
   });
 
   els.itineraryPanel.addEventListener("change", (event) => {
+    const completedToggle = event.target.closest("[data-item-completed]");
+    if (completedToggle) {
+      updateItineraryCompleted(completedToggle).catch(showError);
+      return;
+    }
+
     const typeSelect = event.target.closest(".item-type-select");
     if (typeSelect) syncTypeFields(typeSelect.form);
   });
@@ -442,6 +448,25 @@ async function refreshCurrentTrip() {
   render();
 }
 
+async function updateItineraryCompleted(toggle) {
+  if (!state.currentTrip || !toggle?.dataset?.itemId) return;
+  toggle.disabled = true;
+  const completed = toggle.checked;
+  try {
+    await api(`/api/trips/${state.currentTrip.id}/itinerary/${toggle.dataset.itemId}`, {
+      method: "PATCH",
+      body: { actor: state.user, patch: { completed } }
+    });
+    await refreshCurrentTrip();
+    toast(completed ? "已標記完成" : "已改回未完成");
+  } catch (error) {
+    toggle.checked = !completed;
+    throw error;
+  } finally {
+    toggle.disabled = false;
+  }
+}
+
 async function loadRecommendations(force = false, coords = {}) {
   if (!state.currentTrip) return;
   if (!force && state.recommendationTripId === state.currentTrip.id && state.recommendations) return;
@@ -538,13 +563,15 @@ function renderTripList() {
 
 function renderStats() {
   const trip = state.currentTrip;
-  const budget = trip.itinerary.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const costTotal = totalItineraryCost(trip.itinerary || []);
   const transportCount = trip.itinerary.filter((item) => item.type === "transport").length;
   const lodgingCount = trip.itinerary.filter((item) => item.type === "lodging").length;
+  const completedCount = trip.itinerary.filter((item) => item.completed).length;
   const openTodoCount = trip.todos.filter((todo) => !["done", "not_needed"].includes(todo.status)).length;
   els.tripStats.innerHTML = [
-    stat("總預估花費", money(budget)),
+    stat("行程花費", money(costTotal.amount, costTotal.currency)),
     stat("行程", `${trip.itinerary.length} 筆`),
+    stat("已完成", `${completedCount}/${trip.itinerary.length || 0}`),
     stat("待辦缺口", `${openTodoCount} 個`),
     stat("搭車", `${transportCount} 筆`),
     stat("住宿", `${lodgingCount} 筆`),
@@ -670,13 +697,53 @@ function itineraryFields(item = {}) {
       <input type="time" name="time" value="${escapeAttr(item.time || "")}" />
     </label>
     <label class="wide">
-      標題
-      <input name="title" autocomplete="off" placeholder="羅東夜市、台鐵到宜蘭、礁溪住宿" value="${escapeAttr(item.title || "")}" required />
+      項目
+      <input name="title" autocomplete="off" placeholder="高鐵 857 次、海風號、羅東夜市、住宿訂金" value="${escapeAttr(item.title || "")}" required />
     </label>
     <label class="wide">
-      地點
-      <input name="place" autocomplete="off" placeholder="宜蘭、羅東、台北車站" value="${escapeAttr(item.place || "")}" />
+      地點 / 路線
+      <input name="place" autocomplete="off" placeholder="台南到台北、宜蘭、羅東、飯店名稱" value="${escapeAttr(item.place || "")}" />
     </label>
+
+    <section class="entry-money-card full" aria-label="花費與分帳">
+      <div class="entry-money-title">
+        <strong>花費與分帳</strong>
+        <span>不用收入、轉帳，只記這筆行程花了多少與誰先付。</span>
+      </div>
+      <div class="field-grid compact-grid">
+        <label>
+          金額
+          <input type="number" name="price" min="0" step="1" inputmode="decimal" placeholder="0" value="${escapeAttr(item.price || "")}" />
+        </label>
+        <label>
+          幣別
+          <select name="currency">
+            ${currencyOptions(item.currency || "TWD")}
+          </select>
+        </label>
+        <label>
+          誰先付
+          <select name="payer">
+            ${participantOptions(item.payer || state.user?.lineUserId || "")}
+          </select>
+        </label>
+        <label>
+          怎麼分帳
+          <select name="splitMode">
+            ${splitModeOptions(item.splitMode || "equal")}
+          </select>
+        </label>
+        <label>
+          已付
+          <input name="paidPeople" autocomplete="off" placeholder="例如：吳小慈、爸爸" value="${escapeAttr(item.paidPeople || "")}" />
+        </label>
+        <label>
+          未付
+          <input name="unpaidPeople" autocomplete="off" placeholder="例如：媽媽、小孩" value="${escapeAttr(item.unpaidPeople || "")}" />
+        </label>
+      </div>
+    </section>
+
     <label class="wide">
       新增行程照片
       <input name="photoFiles" type="file" accept="image/*" multiple />
@@ -684,90 +751,34 @@ function itineraryFields(item = {}) {
     </label>
     ${photoManager(item.photoUrls)}
 
-    <section class="type-fields full" data-type-fields="transport">
-      <label class="full">
-        搭車一句話
-        <input name="transportSummary" placeholder="台鐵 123 次，09:00 台北到宜蘭，台北車站搭，約 1 小時 20 分" value="${escapeAttr(item.transportSummary || "")}" />
-      </label>
-      <details class="soft-details">
-        <summary>要更清楚再填車次、上下車地點</summary>
-        <div class="field-grid">
-          <label>交通方式<input name="transportMode" placeholder="台鐵、高鐵、客運、計程車" value="${escapeAttr(item.transportMode || "")}" /></label>
-          <label>車名/路線<input name="transportName" placeholder="台鐵、葛瑪蘭客運" value="${escapeAttr(item.transportName || "")}" /></label>
-          <label>車次/班次<input name="transportNumber" placeholder="123、1915" value="${escapeAttr(item.transportNumber || "")}" /></label>
-          <label>從哪裡<input name="fromPlace" placeholder="台北車站" value="${escapeAttr(item.fromPlace || "")}" /></label>
-          <label>到哪裡<input name="toPlace" placeholder="宜蘭車站" value="${escapeAttr(item.toPlace || "")}" /></label>
-          <label>在哪坐<input name="boardingPlace" placeholder="台北車站 4 月台" value="${escapeAttr(item.boardingPlace || "")}" /></label>
-          <label>時長<input name="duration" placeholder="1 小時 20 分" value="${escapeAttr(item.duration || "")}" /></label>
-        </div>
-      </details>
-    </section>
-
-    <section class="type-fields full" data-type-fields="lodging">
-      <label class="full">
-        住宿一句話
-        <input name="lodgingSummary" placeholder="礁溪老爺，雙人房，含早餐，15:00 入住" value="${escapeAttr(item.lodgingSummary || "")}" />
-      </label>
-      <details class="soft-details">
-        <summary>要更清楚再填地址、早餐、訂房編號</summary>
-        <div class="field-grid">
-          <label>住哪<input name="lodgingName" placeholder="飯店 / 民宿名稱" value="${escapeAttr(item.lodgingName || "")}" /></label>
-          <label>地址<input name="lodgingAddress" placeholder="住宿地址" value="${escapeAttr(item.lodgingAddress || "")}" /></label>
-          <label>入住日<input type="date" name="checkInDate" value="${escapeAttr(item.checkInDate || "")}" /></label>
-          <label>退房日<input type="date" name="checkOutDate" value="${escapeAttr(item.checkOutDate || "")}" /></label>
-          <label>
-            早餐
-            <select name="breakfast">
-              ${selectOptions(
-                { unknown: "還不確定", included: "有早餐", not_included: "沒有早餐" },
-                item.breakfast || "unknown"
-              )}
-            </select>
-          </label>
-          <label>訂房編號<input name="confirmationNumber" placeholder="可空白" value="${escapeAttr(item.confirmationNumber || "")}" /></label>
-        </div>
-      </details>
-    </section>
-
-    <details class="more-fields full">
-      <summary>購票、訂位、價格、備註</summary>
-      <div class="field-grid">
-        <label>
-          是否購票
-          <select name="ticketStatus">
-            ${statusOptions("ticket", item.ticketStatus || "none")}
-          </select>
-        </label>
-        <label>
-          是否訂位
-          <select name="reservationStatus">
-            ${statusOptions("reservation", item.reservationStatus || "none")}
-          </select>
-        </label>
-        <label>價格<input type="number" name="price" min="0" step="1" value="${Number(item.price || 0)}" /></label>
-        <label>幣別<input name="currency" value="${escapeAttr(item.currency || "TWD")}" /></label>
-        <label class="full">備註<textarea name="note" placeholder="集合點、注意事項、誰要先付款">${escapeHtml(item.note || "")}</textarea></label>
-      </div>
-    </details>
+    <label class="full">
+      備註
+      <textarea name="note" placeholder="車次、座位、票種、集合點、訂位編號、早餐、入住退房、注意事項都寫這裡就好。">${escapeHtml(item.note || "")}</textarea>
+    </label>
   `;
 }
 
 function itineraryRow(item) {
   return `
-    <article class="data-row itinerary-row entry-row">
+    <article class="data-row itinerary-row entry-row ${item.completed ? "is-completed" : ""}">
       <div class="entry-icon" data-type="${escapeAttr(item.type || "activity")}">${entryIconText(item.type)}</div>
       <div class="row-title">
         <div class="title-line">
           <strong>${escapeHtml(item.title)}</strong>
+          ${item.completed ? `<span class="completed-pill">已完成</span>` : ""}
         </div>
         <small>${escapeHtml(formatWhen(item))}${item.place ? ` · ${escapeHtml(item.place)}` : ""}</small>
-        ${itineraryDetail(item)}
+        ${paymentLine(item)}
         ${photoStrip(item.photoUrls)}
         ${item.note ? `<small>備註：${escapeHtml(item.note)}</small>` : ""}
         <small class="audit-line">${auditLine(item)}</small>
       </div>
       <div class="row-controls entry-side">
-        <span class="entry-price">${money(item.price || 0, item.currency)}</span>
+        ${entryPrice(item)}
+        <label class="completion-toggle">
+          <input type="checkbox" data-item-completed data-item-id="${escapeAttr(item.id)}" ${item.completed ? "checked" : ""} />
+          <span>已完成</span>
+        </label>
         <button class="plain-button" type="button" data-edit-toggle="${escapeAttr(item.id)}">修改</button>
         <button class="danger-button" type="button" data-delete-item="${escapeAttr(item.id)}">刪除</button>
       </div>
@@ -801,32 +812,84 @@ function groupedItineraryRows(items) {
     .join("");
 }
 
+function entryPrice(item) {
+  const amount = Number(item.price || 0);
+  if (!amount) return "";
+  return `<span class="entry-price">${escapeHtml(money(amount, item.currency))}</span>`;
+}
+
+function paymentLine(item) {
+  const amount = Number(item.price || 0);
+  const parts = [];
+  if (amount) {
+    const payer = item.payerName || item.payer || actorName(state.user || {});
+    parts.push(`${payer} 先付 ${money(amount, item.currency)}`);
+  }
+  if (item.splitMode && item.splitMode !== "none") parts.push(splitModeLabel(item.splitMode));
+  const paid = cleanDisplayText(item.paidPeople);
+  const unpaid = cleanDisplayText(item.unpaidPeople);
+  if (paid) parts.push(`已付：${paid}`);
+  if (unpaid) parts.push(`未付：${unpaid}`);
+  return parts.length ? `<small class="payment-line">${escapeHtml(parts.join(" · "))}</small>` : "";
+}
+
+function totalItineraryCost(items = []) {
+  const byCurrency = new Map();
+  for (const item of items) {
+    const amount = Number(item.price || 0);
+    if (!amount) continue;
+    const currency = item.currency || "TWD";
+    byCurrency.set(currency, (byCurrency.get(currency) || 0) + amount);
+  }
+  const currency = byCurrency.has("TWD") ? "TWD" : byCurrency.keys().next().value || "TWD";
+  return { amount: byCurrency.get(currency) || 0, currency };
+}
+
+function expenseParticipants() {
+  const members = Array.isArray(state.currentTrip?.members) ? state.currentTrip.members : [];
+  const unique = new Map();
+  for (const member of members) {
+    const id = member.lineUserId || member.displayName;
+    if (id) unique.set(id, { lineUserId: id, displayName: member.displayName || id });
+  }
+  if (state.user?.lineUserId) {
+    unique.set(state.user.lineUserId, {
+      lineUserId: state.user.lineUserId,
+      displayName: state.user.displayName || state.user.lineUserId
+    });
+  }
+  return Array.from(unique.values());
+}
+
+function participantOptions(selected) {
+  const members = expenseParticipants();
+  if (!members.length) return `<option value="">目前使用者</option>`;
+  return members
+    .map((member) => {
+      const id = member.lineUserId || member.displayName;
+      const label = member.displayName && member.displayName !== id ? `${member.displayName} (${id})` : id;
+      return `<option value="${escapeAttr(id)}" ${id === selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    })
+    .join("");
+}
+
+function currencyOptions(selected) {
+  return selectOptions({ TWD: "TWD", JPY: "JPY", KRW: "KRW", USD: "USD", EUR: "EUR", THB: "THB" }, selected || "TWD");
+}
+
+function splitModeOptions(selected) {
+  return selectOptions({ equal: "平均分攤", payer_only: "先記帳不分攤", custom: "自訂寫備註" }, selected || "equal");
+}
+
+function splitModeLabel(value) {
+  return { equal: "平均分攤", payer_only: "先記帳不分攤", custom: "自訂寫備註" }[value] || "平均分攤";
+}
+
+function cleanDisplayText(value) {
+  return String(value || "").trim();
+}
+
 function itineraryDetail(item) {
-  if (item.type === "transport") {
-    const details = [
-      item.transportSummary,
-      joinParts([item.transportMode, item.transportName, item.transportNumber], " "),
-      joinParts([item.fromPlace, item.toPlace], " 到 "),
-      item.boardingPlace ? `在哪坐：${item.boardingPlace}` : "",
-      item.duration ? `時長：${item.duration}` : ""
-    ].filter(Boolean);
-    return details.length ? `<small>搭車：${escapeHtml(details.join(" · "))}</small>` : "";
-  }
-
-  if (item.type === "lodging") {
-    const details = [
-      item.lodgingSummary,
-      item.lodgingName ? `住哪：${item.lodgingName}` : "",
-      item.lodgingAddress ? `地址：${item.lodgingAddress}` : "",
-      item.checkInDate || item.checkOutDate
-        ? `入住/退房：${item.checkInDate || "未定"} 到 ${item.checkOutDate || "未定"}`
-        : "",
-      `早餐：${breakfastLabel(item.breakfast)}`,
-      item.confirmationNumber ? `訂房編號：${item.confirmationNumber}` : ""
-    ].filter(Boolean);
-    return details.length ? `<small>住宿：${escapeHtml(details.join(" · "))}</small>` : "";
-  }
-
   return "";
 }
 
