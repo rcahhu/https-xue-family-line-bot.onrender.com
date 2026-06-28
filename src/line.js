@@ -128,7 +128,7 @@ export async function handleLineEvent(event, { store, config }) {
       ];
       await store.updateTrip(activeTrip.id, { planning: { recommendedPlaces } }, actor);
     }
-    return replyLine(config, event.replyToken, [assistantFlex("附近熱門", activeTrip, recommendations, answer, "附近熱門")]);
+    return replyLine(config, event.replyToken, [assistantFlex("目的地推薦", activeTrip, recommendations, answer, "目的地推薦")]);
   }
 
   const assistantMatch = text.match(/^(?:問|AI|助理|智能|智慧|機器人)\s*(.*)$/iu);
@@ -268,11 +268,6 @@ function homeFlex(config, subtitle = "不用打關鍵字，直接點下面的方
               label: "打開",
               uri: homeUrl(config)
             }),
-            actionBox("順路推薦", "根據目前討論區域推薦，不重複", "#F2B847", {
-              type: "message",
-              label: "推薦",
-              text: "順路推薦"
-            }),
             actionBox("小幫手", "檢查缺票券、缺訂位、交通不順", "#F26767", {
               type: "message",
               label: "檢查",
@@ -360,10 +355,10 @@ function recommendationFlex(recommendations) {
     ...recommendations.eats.slice(0, 3).map((item) => ({ ...item, type: "美食" }))
   ];
 
-  return flexMessage(`${recommendations.areaName} 附近熱門`, {
+  return flexMessage(`${recommendations.areaName} 目的地推薦`, {
     type: "bubble",
     size: "mega",
-    header: headerBlock(recommendations.areaName, "附近熱門"),
+    header: headerBlock(recommendations.areaName, "目的地推薦"),
     body: {
       type: "box",
       layout: "vertical",

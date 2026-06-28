@@ -206,6 +206,12 @@ async function handleApi(req, res, url) {
     return sendJson(res, result);
   }
 
+  if (req.method === "POST" && parts[3] === "members") {
+    const body = await readJson(req);
+    const member = await store.addManualMember(tripId, body.member || body, accessActor(body));
+    return sendJson(res, { member }, 201);
+  }
+
   if (req.method === "GET" && parts[3] === "recommendations") {
     const trip = await store.getTrip(tripId, {
       userId: actorFromQuery.lineUserId,

@@ -188,6 +188,30 @@ export class TripStore {
     });
   }
 
+  async addManualMember(id, memberInput = {}, actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      const displayName = cleanText(memberInput.displayName || memberInput.name);
+      if (!displayName) throw new HttpError(400, "同行成員名稱不能空白");
+      const existing = (trip.members || []).find(
+        (member) => cleanText(member.displayName) === displayName && (member.manual || member.role === "manual")
+      );
+      if (existing) return existing;
+      const member = {
+        lineUserId: `manual:${createId("member")}`,
+        displayName,
+        role: "manual",
+        manual: true,
+        joinedAt: new Date().toISOString()
+      };
+      trip.members = Array.isArray(trip.members) ? trip.members : [];
+      trip.members.push(member);
+      touch(trip, normalizeActor(actor));
+      return member;
+    });
+  }
+
   async linkTripToSource(id, sourceKey, actor = {}) {
     return this.mutate((db) => {
       const trip = findTrip(db, id);
@@ -675,9 +699,11 @@ function hydrateTrip(trip) {
 }
 
 function hydrateMember(member) {
+  const role = member.role === "owner" ? "owner" : member.role === "manual" || member.manual ? "manual" : "member";
   return {
     ...normalizeActor(member),
-    role: member.role === "owner" ? "owner" : "member",
+    role,
+    manual: Boolean(member.manual || role === "manual"),
     joinedAt: member.joinedAt || new Date().toISOString()
   };
 }
@@ -787,15 +813,34 @@ function requireMember(trip, actor = {}) {
 }
 
 function upsertMember(trip, actor = {}, role = "member") {
+  trip.members = Array.isArray(trip.members) ? trip.members : [];
   const normalized = normalizeActor(actor);
   const existing = trip.members.find((member) => member.lineUserId === normalized.lineUserId);
   if (existing) {
     existing.displayName = normalized.displayName;
+    if (existing.role !== "owner" && role !== "manual") existing.role = role;
+    if (role !== "manual") existing.manual = false;
     return existing;
   }
+
+  // If a family member was first added manually, and later joins through an
+  // invite link using the same display name, upgrade that manual row into a
+  // real joined member so the member list does not show duplicates.
+  const manualMatch = trip.members.find(
+    (member) => (member.manual || member.role === "manual") && cleanText(member.displayName) === normalized.displayName
+  );
+  if (manualMatch && role !== "manual") {
+    manualMatch.lineUserId = normalized.lineUserId;
+    manualMatch.displayName = normalized.displayName;
+    manualMatch.role = role;
+    manualMatch.manual = false;
+    return manualMatch;
+  }
+
   const member = {
     ...normalized,
     role,
+    manual: role === "manual",
     joinedAt: new Date().toISOString()
   };
   trip.members.push(member);

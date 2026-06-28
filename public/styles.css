@@ -1600,3 +1600,25 @@ h3 {
 .trip-page-actions .back-to-list-button {
   margin: 0;
 }
+
+
+.manual-member-controls {
+  display: grid;
+  gap: 0.75rem;
+  min-width: min(100%, 280px);
+}
+
+.manual-member-controls input {
+  width: 100%;
+  border: 1px solid rgba(45, 63, 57, 0.16);
+  border-radius: 14px;
+  padding: 0.8rem 0.9rem;
+  font: inherit;
+}
+
+@media (min-width: 760px) {
+  .manual-member-controls {
+    grid-template-columns: minmax(180px, 1fr) auto;
+    align-items: center;
+  }
+}

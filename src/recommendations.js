@@ -112,7 +112,38 @@ const catalogs = [
       item("旗津海產", "海鮮", "多人分食容易。", "旗津"),
       item("瑞豐夜市", "夜市", "晚餐、宵夜選擇多。", "左營")
     ]
+  },
+
+  {
+    key: "busan",
+    areaName: "釜山",
+    match: ["釜山", "busan", "Busan", "BUSAN", "부산", "海雲台", "海云台", "廣安里", "广安里", "西面", "南浦", "甘川", "松島", "松岛", "青沙浦", "影島", "影岛"],
+    routes: [
+      "海雲台、青沙浦、海東龍宮寺排成海景半日到一日線，適合拍照和看海。",
+      "南浦洞、札嘎其市場、BIFF 廣場和甘川文化村可以排成市區經典路線。",
+      "廣安里傍晚看海，晚上看廣安大橋夜景，再找附近餐廳或咖啡。"
+    ],
+    spots: [
+      item("甘川文化村", "拍照", "彩色山城和壁畫巷很有釜山代表性，適合半日散步。", "沙下區"),
+      item("海雲台海水浴場", "看海", "釜山經典海邊，適合搭配周邊商圈和咖啡。", "海雲台"),
+      item("廣安里海水浴場", "夜景", "晚上看廣安大橋很漂亮，適合排晚餐後。", "水營區"),
+      item("海東龍宮寺", "寺廟", "靠海寺廟很特別，交通時間要留寬一點。", "機張"),
+      item("札嘎其市場", "市場", "海鮮市場和南浦洞可一起安排。", "中區"),
+      item("BIFF 廣場", "小吃", "南浦洞路線順路，適合點心和逛街。", "中區"),
+      item("白淺灘文化村", "散步", "海邊巷弄與咖啡店，適合拍照慢走。", "影島"),
+      item("松島海上纜車", "海景", "想看海景可以排入半日路線。", "西區"),
+      item("青沙浦天空步道", "海景", "可搭配海岸列車、海雲台方向一起排。", "海雲台")
+    ],
+    eats: [
+      item("豬肉湯飯", "在地餐", "釜山代表性餐點，適合早餐或午餐。", "西面 / 釜山各區"),
+      item("小麥冷麵", "麵食", "夏天很適合，口味清爽。", "釜山各區"),
+      item("釜山魚糕", "點心", "適合當路線中的小點或伴手禮。", "南浦洞 / 釜山站"),
+      item("BIFF 廣場糖餅", "甜點", "南浦洞逛街時順手買很方便。", "南浦洞"),
+      item("札嘎其海鮮", "海鮮", "多人旅行可分食，但要先確認預算。", "中區"),
+      item("西面商圈餐廳", "聚餐", "交通方便，選擇多，適合收尾晚餐。", "西面")
+    ]
   }
+
 ];
 
 const fallback = {
@@ -137,9 +168,11 @@ const fallback = {
 
 export function getRecommendations({ area = "", lat, lng } = {}) {
   const normalizedArea = String(area).trim();
+  const normalizedAreaLower = normalizedArea.toLowerCase();
   const catalog =
-    catalogs.find((entry) => entry.match.some((keyword) => normalizedArea.includes(keyword))) ||
-    fallback;
+    catalogs.find((entry) =>
+      entry.match.some((keyword) => normalizedArea.includes(keyword) || normalizedAreaLower.includes(String(keyword).toLowerCase()))
+    ) || fallback;
 
   return {
     ...catalog,

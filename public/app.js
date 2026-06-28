@@ -198,6 +198,24 @@ function bindEvents() {
     inviteCurrentTrip().catch(showError);
   });
 
+  els.membersPanel.addEventListener("submit", async (event) => {
+    if (!event.target.matches(".manual-member-form")) return;
+    event.preventDefault();
+    const form = event.target;
+    const displayName = String(new FormData(form).get("displayName") || "").trim();
+    if (!displayName) {
+      toast("請輸入同行成員名稱");
+      return;
+    }
+    await api(`/api/trips/${state.currentTrip.id}/members`, {
+      method: "POST",
+      body: accessPayload({ member: { displayName } })
+    });
+    form.reset();
+    await refreshCurrentTrip();
+    toast("已加入同行成員");
+  });
+
   els.itineraryPanel.addEventListener("submit", async (event) => {
     if (event.target.matches(".item-form")) {
       event.preventDefault();
@@ -683,7 +701,7 @@ async function loadRecommendationsFromLocation() {
         lng: String(position.coords.longitude)
       });
       renderRecommendations();
-      toast("已更新附近熱門");
+      toast("已更新目的地推薦");
     },
     () => toast("無法取得定位，先用日記地區推薦")
   );
@@ -716,7 +734,6 @@ function render() {
   renderItinerary();
   renderTodos();
   renderWishes();
-  renderRecommendations();
   renderMembers();
   renderPanels();
 }
@@ -1229,7 +1246,7 @@ function wishRow(wish) {
 function renderRecommendations() {
   const rec = state.recommendations;
   if (!rec) {
-    els.recommendationsPanel.innerHTML = `<p class="muted">載入附近熱門中</p>`;
+    els.recommendationsPanel.innerHTML = `<p class="muted">載入目的地推薦中</p>`;
     return;
   }
 
@@ -1245,11 +1262,11 @@ function renderRecommendations() {
         </ul>
       </section>
       <section class="recommendation-block">
-        <h3>熱門景點</h3>
+        <h3>推薦景點</h3>
         ${rec.spots.map((item) => recommendationItem(item)).join("")}
       </section>
       <section class="recommendation-block">
-        <h3>熱門美食</h3>
+        <h3>推薦美食</h3>
         ${rec.eats.map((item) => recommendationItem(item)).join("")}
       </section>
     </div>
@@ -1274,34 +1291,51 @@ function recommendationItem(item) {
 
 function renderMembers() {
   const trip = state.currentTrip;
+  const members = Array.isArray(trip.members) ? trip.members : [];
   els.membersPanel.innerHTML = `
     <div class="member-summary member-invite-card">
       <div>
         <strong>邀請家人加入日記本</strong>
-        <span>分享邀請連結後，家人第一次開啟會加入這本日記，之後就能一起新增、修改行程。</span>
+        <span>分享邀請連結後，家人第一次開啟會加入這本日記；加入後會永久保留在同行成員裡，之後再打開也可以查看與編輯。</span>
       </div>
       <button class="primary-button" type="button" data-invite-current>邀請家人</button>
     </div>
+    <form class="member-summary manual-member-form">
+      <div>
+        <strong>手動新增同行成員</strong>
+        <span>沒有使用 LINE、或只是要先放進分帳名單的人，可以先手動加入。</span>
+      </div>
+      <div class="manual-member-controls">
+        <input name="displayName" autocomplete="off" placeholder="例如：阿嬤、舅舅" />
+        <button class="compact-button" type="submit">新增</button>
+      </div>
+    </form>
     <div class="member-summary">
-      <strong>編輯者紀錄</strong>
-      <span>這裡只記錄誰建立、誰編輯過。</span>
+      <strong>同行成員</strong>
+      <span>這裡顯示目前已加入這本日記、可查看與編輯的人；手動新增者會列入同行與分帳名單。</span>
     </div>
     <div class="member-list">
-      ${trip.members
+      ${members.length ? members
         .map(
           (member) => `
             <article class="member-row">
               <div>
                 <strong>${escapeHtml(actorName(member))}</strong>
-                <small>加入日記本：${formatDateTime(member.joinedAt)}</small>
+                <small>${member.manual ? "手動新增" : "加入日記本"}：${formatDateTime(member.joinedAt)}</small>
               </div>
-              <span class="muted">${member.role === "owner" ? "建立者" : "編輯者"}</span>
+              <span class="muted">${memberRoleLabel(member)}</span>
             </article>
           `
         )
-        .join("")}
+        .join("") : `<p class="muted">還沒有同行成員。可以先邀請家人，或手動新增。</p>`}
     </div>
   `;
+}
+
+function memberRoleLabel(member = {}) {
+  if (member.role === "owner") return "建立者";
+  if (member.manual || member.role === "manual") return "手動新增";
+  return "已加入，可編輯";
 }
 
 function renderPanels() {
