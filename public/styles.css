@@ -1466,3 +1466,74 @@ h3 {
     padding: 12px 14px 28px;
   }
 }
+
+/* 2026-06-28: friendly family display names instead of technical guest ids */
+.user-badge {
+  cursor: pointer;
+}
+
+.user-badge.needs-name {
+  border-color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.16);
+  font-weight: 900;
+}
+
+.identity-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(22, 40, 34, 0.48);
+  backdrop-filter: blur(4px);
+}
+
+.identity-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(440px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px;
+  background: var(--surface);
+  box-shadow: 0 28px 70px rgba(24, 72, 56, 0.26);
+}
+
+.identity-dialog .eyebrow {
+  color: var(--brand-dark);
+  font-weight: 900;
+}
+
+.identity-dialog h2 {
+  margin-bottom: 6px;
+}
+
+.name-hint {
+  margin: 10px 0 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--brand-dark);
+  background: var(--surface-soft);
+}
+
+.identity-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .identity-dialog-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .identity-dialog {
+    border-radius: 18px;
+  }
+
+  .identity-actions {
+    flex-direction: column-reverse;
+  }
+}

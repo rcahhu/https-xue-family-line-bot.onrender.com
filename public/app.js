@@ -13,6 +13,8 @@ const state = {
 };
 
 const KNOWN_INVITES_KEY = "xue-family-known-trip-invites";
+const DISPLAY_NAME_KEY = "xue-family-display-name";
+const DISPLAY_NAME_KEY_PREFIX = "xue-family-display-name:";
 
 const els = {
   userBadge: document.querySelector("#userBadge"),
@@ -62,6 +64,7 @@ async function init() {
   bindEvents();
   state.config = await api("/api/config");
   state.user = await resolveUser();
+  await ensureDisplayName();
   renderUser();
 
   const params = new URLSearchParams(location.search);
@@ -81,6 +84,10 @@ async function init() {
 }
 
 function bindEvents() {
+  els.userBadge.addEventListener("click", () => {
+    ensureDisplayName({ force: true }).catch(showError);
+  });
+
   els.createTripForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const title = els.tripTitleInput.value.trim();
@@ -405,9 +412,13 @@ async function resolveUser() {
       return fallback;
     }
     const profile = await window.liff.getProfile();
+    const lineDisplayName = cleanDisplayName(profile.displayName);
     return {
       lineUserId: profile.userId,
-      displayName: profile.userId
+      displayName: savedDisplayName(profile.userId) || lineDisplayName,
+      lineDisplayName,
+      pictureUrl: profile.pictureUrl || "",
+      isLineUser: true
     };
   } catch (error) {
     console.warn("LIFF init failed, using guest mode.", error);
@@ -427,7 +438,135 @@ function guestUser() {
   } catch {
     id = `guest-${cryptoRandom()}`;
   }
-  return { lineUserId: id, displayName: id };
+  return {
+    lineUserId: id,
+    displayName: savedDisplayName(id) || "",
+    isGuest: true
+  };
+}
+
+async function ensureDisplayName({ force = false } = {}) {
+  const currentName = userDisplayName(state.user);
+  if (!force && currentName) return currentName;
+
+  const nextName = await promptDisplayName({
+    initialValue: currentName || state.user?.lineDisplayName || "",
+    canCancel: force && Boolean(currentName)
+  });
+  if (!nextName) return currentName;
+
+  state.user.displayName = nextName;
+  saveDisplayName(nextName, state.user?.lineUserId);
+  renderUser();
+
+  if (state.currentTrip) {
+    try {
+      await api(`/api/trips/${state.currentTrip.id}`, {
+        method: "PATCH",
+        body: accessPayload({ patch: {} })
+      });
+      await refreshCurrentTrip();
+    } catch (error) {
+      console.warn("Display name sync failed.", error);
+    }
+  }
+  return nextName;
+}
+
+function promptDisplayName({ initialValue = "", canCancel = false } = {}) {
+  return new Promise((resolve) => {
+    document.querySelector(".identity-dialog-backdrop")?.remove();
+    const wrapper = document.createElement("div");
+    wrapper.className = "identity-dialog-backdrop";
+    const lineName = cleanDisplayName(state.user?.lineDisplayName || "");
+    wrapper.innerHTML = `
+      <form class="identity-dialog" autocomplete="off">
+        <div>
+          <p class="eyebrow">加入日記本</p>
+          <h2>設定顯示名稱</h2>
+          <p class="muted">這個名字會顯示在建立者、最後編輯、付款人與編輯者紀錄裡。</p>
+          ${lineName ? `<p class="name-hint">已從 LINE 取得：<strong>${escapeHtml(lineName)}</strong>，可以直接使用，也可以改成家人習慣稱呼。</p>` : `<p class="name-hint">目前沒有取得 LINE 暱稱，請先設定一個家人看得懂的名字。</p>`}
+        </div>
+        <label>
+          我的顯示名稱
+          <input name="displayName" maxlength="24" placeholder="例如：小慈、媽媽、爸爸、阿嬤" value="${escapeAttr(initialValue)}" required />
+        </label>
+        <div class="identity-actions">
+          ${canCancel ? `<button class="plain-button" type="button" data-name-cancel>取消</button>` : ""}
+          <button class="primary-button" type="submit">儲存並繼續</button>
+        </div>
+      </form>
+    `;
+    document.body.appendChild(wrapper);
+    const form = wrapper.querySelector("form");
+    const input = wrapper.querySelector("input[name='displayName']");
+    input.focus();
+    input.select();
+
+    wrapper.querySelector("[data-name-cancel]")?.addEventListener("click", () => {
+      wrapper.remove();
+      resolve("");
+    });
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const name = cleanDisplayName(input.value);
+      if (!name) {
+        input.focus();
+        toast("請先輸入顯示名稱");
+        return;
+      }
+      wrapper.remove();
+      resolve(name);
+    });
+  });
+}
+
+function cleanDisplayName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 24);
+}
+
+function displayNameStorageKeys(userId = state.user?.lineUserId) {
+  const keys = [];
+  const id = String(userId || "").trim();
+  if (id) keys.push(`${DISPLAY_NAME_KEY_PREFIX}${id}`);
+  keys.push(DISPLAY_NAME_KEY);
+  return keys;
+}
+
+function savedDisplayName(userId) {
+  try {
+    for (const key of displayNameStorageKeys(userId)) {
+      const value = cleanDisplayName(localStorage.getItem(key) || "");
+      if (value && !isTechnicalIdentity(value)) return value;
+    }
+  } catch {
+    // localStorage may be unavailable in some restricted in-app browsers.
+  }
+  return "";
+}
+
+function saveDisplayName(name, userId) {
+  const value = cleanDisplayName(name);
+  if (!value) return;
+  try {
+    for (const key of displayNameStorageKeys(userId)) localStorage.setItem(key, value);
+  } catch {
+    // localStorage may be unavailable in some restricted in-app browsers.
+  }
+}
+
+function userDisplayName(user = state.user) {
+  const name = cleanDisplayName(user?.displayName || user?.name || "");
+  if (name && !isTechnicalIdentity(name)) return name;
+  const lineName = cleanDisplayName(user?.lineDisplayName || "");
+  if (lineName && !isTechnicalIdentity(lineName)) return lineName;
+  return "";
+}
+
+function isTechnicalIdentity(value) {
+  const text = String(value || "").trim();
+  return !text || /^guest[-_]/i.test(text) || /^guest$/i.test(text) || /^line-guest$/i.test(text) || /^U[a-f0-9]{20,}$/i.test(text);
 }
 
 async function joinTripFromInvite(tripId, inviteToken) {
@@ -583,7 +722,10 @@ function updateScreenModeClasses(hasTrip = Boolean(state.currentTrip), isCreatin
 }
 
 function renderUser() {
-  els.userBadge.textContent = state.user?.lineUserId ? `編輯：${state.user.lineUserId}` : "未取得 LINE ID";
+  const name = userDisplayName(state.user);
+  els.userBadge.textContent = name ? `編輯：${name}` : "設定顯示名稱";
+  els.userBadge.title = "點一下可以修改顯示名稱";
+  els.userBadge.classList.toggle("needs-name", !name);
 }
 
 function renderTripList() {
@@ -952,7 +1094,7 @@ function paymentLine(item) {
   const amount = Number(item.price || 0);
   const parts = [];
   if (amount) {
-    const payer = item.payerName || item.payer || actorName(state.user || {});
+    const payer = item.payerName || participantNameById(item.payer) || actorName(state.user || {});
     parts.push(`${payer} 先付 ${money(amount, item.currency)}`);
   }
   if (item.splitMode && item.splitMode !== "none") parts.push(splitModeLabel(item.splitMode));
@@ -993,14 +1135,21 @@ function expenseParticipants() {
 
 function participantOptions(selected) {
   const members = expenseParticipants();
-  if (!members.length) return `<option value="">目前使用者</option>`;
+  if (!members.length) return `<option value="">${escapeHtml(actorName(state.user))}</option>`;
   return members
     .map((member) => {
       const id = member.lineUserId || member.displayName;
-      const label = member.displayName && member.displayName !== id ? `${member.displayName} (${id})` : id;
+      const label = actorName(member);
       return `<option value="${escapeAttr(id)}" ${id === selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
     })
     .join("");
+}
+
+function participantNameById(id) {
+  const target = String(id || "").trim();
+  if (!target) return "";
+  const member = expenseParticipants().find((entry) => (entry.lineUserId || entry.displayName) === target);
+  return member ? actorName(member) : "";
 }
 
 function currencyOptions(selected) {
@@ -1127,7 +1276,7 @@ function renderMembers() {
           (member) => `
             <article class="member-row">
               <div>
-                <strong>${escapeHtml(member.lineUserId || member.displayName)}</strong>
+                <strong>${escapeHtml(actorName(member))}</strong>
                 <small>加入日記本：${formatDateTime(member.joinedAt)}</small>
               </div>
               <span class="muted">${member.role === "owner" ? "建立者" : "編輯者"}</span>
@@ -1303,6 +1452,10 @@ async function api(path, options = {}) {
 async function formObject(form) {
   const formData = new FormData(form);
   const value = Object.fromEntries(formData.entries());
+  if ("payer" in value) {
+    if (!value.payer && state.user?.lineUserId) value.payer = state.user.lineUserId;
+    value.payerName = participantNameById(value.payer) || actorName(state.user || {});
+  }
   const photoFileInput = form.querySelector("input[name='photoFiles']");
   if (photoFileInput) {
     const keepInputs = Array.from(form.querySelectorAll("input[name='keepPhotoUrls']"));
@@ -1474,7 +1627,13 @@ function auditLine(entry) {
 }
 
 function actorName(actor) {
-  return actor?.lineUserId || actor?.userId || actor?.displayName || actor?.name || "未取得 LINE ID";
+  const name = cleanDisplayName(actor?.displayName || actor?.name || "");
+  if (name && !isTechnicalIdentity(name)) return name;
+  const lineName = cleanDisplayName(actor?.lineDisplayName || "");
+  if (lineName && !isTechnicalIdentity(lineName)) return lineName;
+  const id = cleanDisplayName(actor?.lineUserId || actor?.userId || "");
+  if (id && !isTechnicalIdentity(id)) return id;
+  return id && /^U[a-f0-9]{20,}$/i.test(id) ? "LINE 使用者" : "尚未設定名稱";
 }
 
 function joinParts(parts, separator) {

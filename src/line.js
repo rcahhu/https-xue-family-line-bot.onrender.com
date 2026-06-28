@@ -604,7 +604,16 @@ function separator() {
 }
 
 function actorName(actor = {}) {
-  return actor.lineUserId || actor.userId || actor.displayName || actor.name || "未取得 LINE ID";
+  const name = String(actor.displayName || actor.name || "").trim();
+  if (name && !isTechnicalIdentity(name)) return name;
+  const id = String(actor.lineUserId || actor.userId || "").trim();
+  if (id && !isTechnicalIdentity(id)) return id;
+  return id && /^U[a-f0-9]{20,}$/i.test(id) ? "LINE 使用者" : "尚未設定名稱";
+}
+
+function isTechnicalIdentity(value) {
+  const text = String(value || "").trim();
+  return !text || /^guest[-_]/i.test(text) || /^guest$/i.test(text) || /^line-guest$/i.test(text) || /^U[a-f0-9]{20,}$/i.test(text);
 }
 
 function actorFromEvent(event, sourceKey = makeSourceKey(event.source)) {
