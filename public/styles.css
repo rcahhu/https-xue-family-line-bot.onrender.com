@@ -1402,3 +1402,67 @@ h3 {
     flex-direction: column-reverse;
   }
 }
+
+/* 2026-06-28: once a diary is opened, hide the notebook list/header chrome.
+   The notebook list is only shown on /app; itinerary add/edit uses a clean full-screen panel. */
+.back-to-list-button {
+  width: max-content;
+  min-height: 40px;
+  margin: 14px 18px 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 14px;
+  color: var(--brand-dark);
+  background: var(--surface-soft);
+  font-weight: 900;
+}
+
+.has-trip:not(.is-creating) .topbar,
+.has-trip:not(.is-creating) .sidebar {
+  display: none;
+}
+
+.has-trip:not(.is-creating) .layout {
+  grid-template-columns: minmax(0, 920px);
+  justify-content: center;
+  padding-top: 0;
+}
+
+.has-trip:not(.is-creating) .workspace {
+  min-height: 100vh;
+}
+
+.itinerary-form-mode .back-to-list-button,
+.itinerary-form-mode .trip-head,
+.itinerary-form-mode .tabs {
+  display: none;
+}
+
+.itinerary-form-mode .panel {
+  padding-top: 14px;
+}
+
+.itinerary-form-mode .workspace {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 880px) {
+  .has-trip:not(.is-creating) .layout {
+    display: block;
+    padding: 0;
+  }
+
+  .has-trip:not(.is-creating) .workspace {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .back-to-list-button {
+    margin: 12px 16px 0;
+  }
+
+  .itinerary-form-mode .panel {
+    padding: 12px 14px 28px;
+  }
+}

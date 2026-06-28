@@ -27,6 +27,7 @@ const els = {
   tripNoteInput: document.querySelector("#tripNoteInput"),
   tripCoverPhotoInput: document.querySelector("#tripCoverPhotoInput"),
   tripList: document.querySelector("#tripList"),
+  backToDiaryListButton: document.querySelector("#backToDiaryListButton"),
   emptyState: document.querySelector("#emptyState"),
   tripView: document.querySelector("#tripView"),
   tripSettingsForm: document.querySelector("#tripSettingsForm"),
@@ -115,6 +116,16 @@ function bindEvents() {
     const button = event.target.closest("[data-trip-id]");
     if (!button) return;
     await selectTrip(button.dataset.tripId);
+  });
+
+  els.backToDiaryListButton.addEventListener("click", () => {
+    state.currentTrip = null;
+    state.isCreating = false;
+    state.activeTab = "itinerary";
+    state.itineraryView = "list";
+    state.editingItineraryId = "";
+    history.replaceState(null, "", "/app");
+    render();
   });
 
   els.tripSettingsForm.addEventListener("submit", async (event) => {
@@ -536,9 +547,7 @@ function render() {
   renderTripList();
   const hasTrip = Boolean(state.currentTrip);
   const isCreating = Boolean(state.isCreating);
-  document.body.classList.toggle("has-trip", hasTrip);
-  document.body.classList.toggle("no-trip", !hasTrip && !isCreating);
-  document.body.classList.toggle("is-creating", isCreating);
+  updateScreenModeClasses(hasTrip, isCreating);
   els.newDiaryView.hidden = !isCreating;
   els.emptyState.hidden = hasTrip || isCreating;
   els.tripView.hidden = !hasTrip || isCreating;
@@ -562,6 +571,15 @@ function render() {
   renderRecommendations();
   renderMembers();
   renderPanels();
+}
+
+function updateScreenModeClasses(hasTrip = Boolean(state.currentTrip), isCreating = Boolean(state.isCreating)) {
+  const isItineraryForm =
+    hasTrip && !isCreating && ["new", "edit"].includes(state.itineraryView || "list");
+  document.body.classList.toggle("has-trip", hasTrip);
+  document.body.classList.toggle("no-trip", !hasTrip && !isCreating);
+  document.body.classList.toggle("is-creating", isCreating);
+  document.body.classList.toggle("itinerary-form-mode", isItineraryForm);
 }
 
 function renderUser() {
@@ -635,6 +653,7 @@ function tripMeta(trip) {
 }
 
 function renderItinerary() {
+  updateScreenModeClasses();
   const trip = state.currentTrip;
   const view = state.itineraryView || "list";
 
@@ -717,24 +736,27 @@ function openItineraryCreateView() {
   state.activeTab = "itinerary";
   state.itineraryView = "new";
   state.editingItineraryId = "";
+  updateScreenModeClasses();
   renderPanels();
   renderItinerary();
-  window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
 }
 
 function openItineraryEditView(itemId) {
   state.activeTab = "itinerary";
   state.itineraryView = "edit";
   state.editingItineraryId = itemId || "";
+  updateScreenModeClasses();
   renderPanels();
   renderItinerary();
-  window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
 }
 
 function openItineraryListView() {
   state.activeTab = "itinerary";
   state.itineraryView = "list";
   state.editingItineraryId = "";
+  updateScreenModeClasses();
   renderPanels();
   renderItinerary();
   window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
