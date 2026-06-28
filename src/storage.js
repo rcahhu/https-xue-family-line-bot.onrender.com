@@ -195,7 +195,7 @@ export class TripStore {
       const displayName = cleanText(memberInput.displayName || memberInput.name);
       if (!displayName) throw new HttpError(400, "同行成員名稱不能空白");
       const existing = (trip.members || []).find(
-        (member) => cleanText(member.displayName) === displayName && (member.manual || member.role === "manual")
+        (member) => sameDisplayName(member.displayName, displayName)
       );
       if (existing) return existing;
       const member = {
@@ -690,6 +690,7 @@ function hydrateTrip(trip) {
       joinedAt: trip.createdAt || new Date().toISOString()
     });
   }
+  trip.members = mergeMembers(trip.members, trip.owner);
   trip.itinerary = Array.isArray(trip.itinerary)
     ? trip.itinerary.map((item) => normalizeItineraryItem(item))
     : [];
@@ -700,12 +701,104 @@ function hydrateTrip(trip) {
 
 function hydrateMember(member) {
   const role = member.role === "owner" ? "owner" : member.role === "manual" || member.manual ? "manual" : "member";
+  const normalized = normalizeActor(member);
+  const ids = normalizeMemberIds(member);
+  const primaryId = normalized.lineUserId && !normalized.lineUserId.startsWith("manual:") ? normalized.lineUserId : "";
   return {
-    ...normalizeActor(member),
+    ...normalized,
+    lineUserIds: ids.includes(primaryId) ? ids : [primaryId, ...ids].filter(Boolean),
     role,
     manual: Boolean(member.manual || role === "manual"),
     joinedAt: member.joinedAt || new Date().toISOString()
   };
+}
+
+function mergeMembers(members = [], owner = {}) {
+  const result = [];
+  const ownerId = cleanText(owner.lineUserId || owner.userId);
+
+  for (const raw of members || []) {
+    const incoming = hydrateMember(raw);
+    if (ownerId && incoming.lineUserId === ownerId) {
+      incoming.role = "owner";
+      incoming.manual = false;
+    }
+    const existing = result.find((member) => membersRepresentSamePerson(member, incoming));
+    if (existing) {
+      mergeMemberInto(existing, incoming, ownerId);
+    } else {
+      result.push(incoming);
+    }
+  }
+
+  if (ownerId && !result.some((member) => member.lineUserId === ownerId)) {
+    result.unshift({
+      ...normalizeActor(owner),
+      role: "owner",
+      manual: false,
+      joinedAt: owner.joinedAt || new Date().toISOString()
+    });
+  }
+
+  result.sort((a, b) => memberRoleRank(a) - memberRoleRank(b) || new Date(a.joinedAt) - new Date(b.joinedAt));
+  return result;
+}
+
+function membersRepresentSamePerson(a = {}, b = {}) {
+  const aIds = normalizeMemberIds(a);
+  const bIds = normalizeMemberIds(b);
+  if (aIds.some((id) => bIds.includes(id))) return true;
+  // 手動新增與 LINE 加入常會先後產生兩筆同名資料；同行成員以家人顯示名稱去重。
+  return sameDisplayName(a.displayName, b.displayName);
+}
+
+function normalizeMemberIds(member = {}) {
+  const ids = [];
+  const add = (value) => {
+    const id = cleanText(value);
+    if (id && !id.startsWith("manual:") && !ids.includes(id)) ids.push(id);
+  };
+  add(member.lineUserId || member.userId);
+  if (Array.isArray(member.lineUserIds)) member.lineUserIds.forEach(add);
+  return ids;
+}
+
+function sameDisplayName(a, b) {
+  if (isTechnicalIdentity(a) || isTechnicalIdentity(b)) return false;
+  const left = normalizeDisplayNameKey(a);
+  const right = normalizeDisplayNameKey(b);
+  return Boolean(left && right && left === right);
+}
+
+function normalizeDisplayNameKey(value) {
+  return cleanText(value).replace(/\s+/g, "").toLowerCase();
+}
+
+function mergeMemberInto(target, incoming, ownerId = "") {
+  const incomingIsReal = incoming.lineUserId && !incoming.lineUserId.startsWith("manual:");
+  const targetIsManual = !target.lineUserId || target.lineUserId.startsWith("manual:") || target.manual || target.role === "manual";
+  target.lineUserIds = Array.from(new Set([...normalizeMemberIds(target), ...normalizeMemberIds(incoming)]));
+  if (incomingIsReal && targetIsManual) target.lineUserId = incoming.lineUserId;
+  if (!isTechnicalIdentity(incoming.displayName) && (isTechnicalIdentity(target.displayName) || cleanText(incoming.displayName).length > cleanText(target.displayName).length)) {
+    target.displayName = incoming.displayName;
+  }
+  if (target.lineUserId === ownerId || incoming.lineUserId === ownerId || target.role === "owner" || incoming.role === "owner") {
+    target.role = "owner";
+    target.manual = false;
+  } else if (!incoming.manual && incoming.role !== "manual") {
+    target.role = "member";
+    target.manual = false;
+  }
+  if (incoming.joinedAt && (!target.joinedAt || new Date(incoming.joinedAt) < new Date(target.joinedAt))) {
+    target.joinedAt = incoming.joinedAt;
+  }
+  return target;
+}
+
+function memberRoleRank(member = {}) {
+  if (member.role === "owner") return 0;
+  if (member.manual || member.role === "manual") return 2;
+  return 1;
 }
 
 function hydrateWish(wish) {
@@ -770,7 +863,7 @@ function canSeeTrip(trip, { userId, sourceKey } = {}) {
   if (sourceKey && trip.sourceKeys?.includes(sourceKey)) return true;
   if (!userId) return false;
   if (trip.owner?.lineUserId === userId) return true;
-  return trip.members?.some((member) => member.lineUserId === userId);
+  return trip.members?.some((member) => normalizeMemberIds(member).includes(userId));
 }
 
 function normalizeInviteKeys(inviteKeys = []) {
@@ -813,38 +906,25 @@ function requireMember(trip, actor = {}) {
 }
 
 function upsertMember(trip, actor = {}, role = "member") {
-  trip.members = Array.isArray(trip.members) ? trip.members : [];
+  trip.members = Array.isArray(trip.members) ? mergeMembers(trip.members, trip.owner) : [];
   const normalized = normalizeActor(actor);
-  const existing = trip.members.find((member) => member.lineUserId === normalized.lineUserId);
-  if (existing) {
-    existing.displayName = normalized.displayName;
-    if (existing.role !== "owner" && role !== "manual") existing.role = role;
-    if (role !== "manual") existing.manual = false;
-    return existing;
-  }
-
-  // If a family member was first added manually, and later joins through an
-  // invite link using the same display name, upgrade that manual row into a
-  // real joined member so the member list does not show duplicates.
-  const manualMatch = trip.members.find(
-    (member) => (member.manual || member.role === "manual") && cleanText(member.displayName) === normalized.displayName
-  );
-  if (manualMatch && role !== "manual") {
-    manualMatch.lineUserId = normalized.lineUserId;
-    manualMatch.displayName = normalized.displayName;
-    manualMatch.role = role;
-    manualMatch.manual = false;
-    return manualMatch;
-  }
-
-  const member = {
+  const candidate = {
     ...normalized,
     role,
     manual: role === "manual",
     joinedAt: new Date().toISOString()
   };
-  trip.members.push(member);
-  return member;
+
+  const existing = trip.members.find((member) => membersRepresentSamePerson(member, candidate));
+  if (existing) {
+    mergeMemberInto(existing, candidate, trip.owner?.lineUserId);
+    trip.members = mergeMembers(trip.members, trip.owner);
+    return trip.members.find((member) => membersRepresentSamePerson(member, existing)) || existing;
+  }
+
+  trip.members.push(candidate);
+  trip.members = mergeMembers(trip.members, trip.owner);
+  return trip.members.find((member) => membersRepresentSamePerson(member, candidate)) || candidate;
 }
 
 function normalizeItineraryItem(item = {}) {

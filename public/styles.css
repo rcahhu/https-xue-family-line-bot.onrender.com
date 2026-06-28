@@ -571,6 +571,14 @@ h3 {
   background: var(--brand);
 }
 
+.tab-members {
+  line-height: 1.28;
+}
+
+.tab-members span {
+  display: block;
+}
+
 .panel {
   display: grid;
   gap: 16px;
