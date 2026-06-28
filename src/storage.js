@@ -141,6 +141,7 @@ export class TripStore {
       requireMember(trip, actor);
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       if (patch.title !== undefined) trip.title = cleanText(patch.title) || trip.title;
       if (patch.area !== undefined) trip.area = cleanText(patch.area) || trip.area;
       if (patch.startDate !== undefined) trip.startDate = cleanText(patch.startDate);
@@ -178,6 +179,7 @@ export class TripStore {
         throw new HttpError(403, "邀請連結已失效或不正確");
       }
       const member = upsertMember(trip, actor, "member");
+      upgradeActorNames(trip, member);
       if (sourceKey && !trip.sourceKeys.includes(sourceKey)) {
         trip.sourceKeys.push(sourceKey);
       }
@@ -191,6 +193,8 @@ export class TripStore {
       const trip = findTrip(db, id);
       requireMember(trip, actor);
       const normalizedActor = normalizeActor(actor);
+      upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       if (sourceKey && !trip.sourceKeys.includes(sourceKey)) {
         trip.sourceKeys.push(sourceKey);
       }
@@ -206,6 +210,7 @@ export class TripStore {
       const now = new Date().toISOString();
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       const itineraryItem = normalizeItineraryItem({
         ...item,
         id: createId("item"),
@@ -229,6 +234,7 @@ export class TripStore {
       if (!item) throw new HttpError(404, "找不到這個行程");
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       Object.assign(
         item,
         normalizeItineraryItem({
@@ -254,6 +260,7 @@ export class TripStore {
       const before = trip.itinerary.length;
       trip.itinerary = trip.itinerary.filter((entry) => entry.id !== itemId);
       if (trip.itinerary.length === before) throw new HttpError(404, "找不到這個行程");
+      upgradeActorNames(trip, actor);
       touch(trip, normalizeActor(actor));
       return { ok: true };
     });
@@ -266,6 +273,7 @@ export class TripStore {
       const now = new Date().toISOString();
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       const createdTodo = normalizeTodoItem({
         ...todo,
         id: createId("todo"),
@@ -287,6 +295,7 @@ export class TripStore {
       requireMember(trip, actor);
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       const normalized = normalizeTodoItem({
         ...todo,
         createdBy: normalizedActor,
@@ -330,6 +339,7 @@ export class TripStore {
       if (!todo) throw new HttpError(404, "找不到這個待辦");
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       Object.assign(
         todo,
         normalizeTodoItem({
@@ -354,6 +364,7 @@ export class TripStore {
       const before = trip.todos.length;
       trip.todos = trip.todos.filter((entry) => entry.id !== todoId);
       if (trip.todos.length === before) throw new HttpError(404, "找不到這個待辦");
+      upgradeActorNames(trip, actor);
       touch(trip, normalizeActor(actor));
       return { ok: true };
     });
@@ -366,6 +377,7 @@ export class TripStore {
       const now = new Date().toISOString();
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       const createdWish = {
         id: createId("wish"),
         type: normalizeWishType(wish.type),
@@ -392,6 +404,7 @@ export class TripStore {
       if (!wish) throw new HttpError(404, "找不到這個願望");
       const normalizedActor = normalizeActor(actor);
       upsertMember(trip, normalizedActor, "member");
+      upgradeActorNames(trip, normalizedActor);
       if (patch.type !== undefined) wish.type = normalizeWishType(patch.type);
       if (patch.text !== undefined) wish.text = cleanText(patch.text);
       if (patch.status !== undefined) wish.status = normalizeWishStatus(patch.status);
@@ -409,6 +422,7 @@ export class TripStore {
       const before = trip.wishes.length;
       trip.wishes = trip.wishes.filter((entry) => entry.id !== wishId);
       if (trip.wishes.length === before) throw new HttpError(404, "找不到這個願望");
+      upgradeActorNames(trip, actor);
       touch(trip, normalizeActor(actor));
       return { ok: true };
     });
@@ -692,6 +706,38 @@ function hydrateTodo(todo) {
     createdAt: todo.createdAt || new Date().toISOString(),
     updatedAt: todo.updatedAt || todo.createdAt || new Date().toISOString()
   });
+}
+
+function upgradeActorNames(trip, actor = {}) {
+  const normalized = normalizeActor(actor);
+  if (!normalized.lineUserId || isTechnicalIdentity(normalized.displayName)) return;
+  const maybeUpgrade = (target) => {
+    if (!target || target.lineUserId !== normalized.lineUserId) return;
+    if (isTechnicalIdentity(target.displayName)) target.displayName = normalized.displayName;
+  };
+  maybeUpgrade(trip.owner);
+  maybeUpgrade(trip.createdBy);
+  maybeUpgrade(trip.updatedBy);
+  for (const member of trip.members || []) maybeUpgrade(member);
+  for (const item of trip.itinerary || []) {
+    maybeUpgrade(item.createdBy);
+    maybeUpgrade(item.updatedBy);
+    if (item.payer === normalized.lineUserId && isTechnicalIdentity(item.payerName)) item.payerName = normalized.displayName;
+  }
+  for (const todo of trip.todos || []) {
+    maybeUpgrade(todo.createdBy);
+    maybeUpgrade(todo.updatedBy);
+  }
+  for (const wish of trip.wishes || []) {
+    maybeUpgrade(wish.author);
+    maybeUpgrade(wish.createdBy);
+    maybeUpgrade(wish.updatedBy);
+  }
+}
+
+function isTechnicalIdentity(value) {
+  const text = cleanText(value);
+  return !text || /^guest[-_]/i.test(text) || /^guest$/i.test(text) || /^line-guest$/i.test(text) || /^U[a-f0-9]{20,}$/i.test(text) || text === "LINE 使用者" || text === "尚未設定名稱";
 }
 
 function canSeeTrip(trip, { userId, sourceKey } = {}) {

@@ -20,7 +20,7 @@ export async function handleLineEvent(event, { store, config }) {
 
   const text = event.message.text.trim();
   const sourceKey = makeSourceKey(event.source);
-  const actor = actorFromEvent(event, sourceKey);
+  const actor = await actorFromEvent(event, sourceKey, config);
 
   if (/^(?:版本|version)$/iu.test(text)) {
     return replyLine(config, event.replyToken, [
@@ -616,14 +616,43 @@ function isTechnicalIdentity(value) {
   return !text || /^guest[-_]/i.test(text) || /^guest$/i.test(text) || /^line-guest$/i.test(text) || /^U[a-f0-9]{20,}$/i.test(text);
 }
 
-function actorFromEvent(event, sourceKey = makeSourceKey(event.source)) {
+async function actorFromEvent(event, sourceKey = makeSourceKey(event.source), config = {}) {
+  const lineUserId = event.source?.userId || sourceKey || "line-guest";
+  const displayName = await lineDisplayNameFromEvent(event, config);
   return {
     ...normalizeActor({
-      lineUserId: event.source?.userId || sourceKey || "line-guest",
-      displayName: event.source?.userId || sourceKey || "line-guest"
+      lineUserId,
+      displayName: displayName || lineUserId
     }),
     sourceKey
   };
+}
+
+async function lineDisplayNameFromEvent(event, config = {}) {
+  const userId = event.source?.userId;
+  if (!userId || !config.lineChannelAccessToken) return "";
+  const source = event.source || {};
+  let endpoint = `https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`;
+  if (source.groupId) {
+    endpoint = `https://api.line.me/v2/bot/group/${encodeURIComponent(source.groupId)}/member/${encodeURIComponent(userId)}`;
+  } else if (source.roomId) {
+    endpoint = `https://api.line.me/v2/bot/room/${encodeURIComponent(source.roomId)}/member/${encodeURIComponent(userId)}`;
+  }
+  try {
+    const response = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${config.lineChannelAccessToken}` }
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.warn("[LINE profile lookup failed]", response.status, body.slice(0, 200));
+      return "";
+    }
+    const profile = await response.json();
+    return String(profile.displayName || "").trim();
+  } catch (error) {
+    console.warn("[LINE profile lookup failed]", error?.message || error);
+    return "";
+  }
 }
 
 function isHome(textValue) {
