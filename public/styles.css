@@ -577,6 +577,63 @@ h3 {
   padding: 16px 18px 28px;
 }
 
+
+/* 2026-06-28: itinerary uses explicit list/new/edit screens instead of inline details */
+.itinerary-screen {
+  display: grid;
+  gap: 16px;
+}
+
+.screen-topbar,
+.itinerary-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(180deg, #ffffff, #f7fcf8);
+  box-shadow: var(--shadow-soft);
+}
+
+.screen-topbar {
+  justify-content: flex-start;
+}
+
+.screen-topbar h3,
+.itinerary-list-head h3 {
+  margin: 2px 0 4px;
+  font-size: 1.24rem;
+}
+
+.screen-topbar .plain-button {
+  align-self: flex-start;
+  min-width: max-content;
+}
+
+.screen-form {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.form-action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.empty-itinerary-note {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--surface-soft);
+}
+
 .panel[hidden],
 .trip-view[hidden] {
   display: none;
@@ -1323,5 +1380,25 @@ h3 {
   .entry-side {
     grid-template-columns: max-content max-content;
     grid-auto-flow: row;
+  }
+}
+
+
+@media (max-width: 640px) {
+  .screen-topbar,
+  .itinerary-list-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .screen-topbar .plain-button,
+  .itinerary-list-head .primary-button,
+  .form-action-row .primary-button,
+  .form-action-row .plain-button {
+    width: 100%;
+  }
+
+  .form-action-row {
+    flex-direction: column-reverse;
   }
 }

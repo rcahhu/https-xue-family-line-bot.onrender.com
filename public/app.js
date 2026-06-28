@@ -6,6 +6,8 @@ const state = {
   currentTrip: null,
   isCreating: false,
   activeTab: "itinerary",
+  itineraryView: "list",
+  editingItineraryId: "",
   recommendations: null,
   recommendationTripId: null
 };
@@ -128,7 +130,7 @@ function bindEvents() {
     if (coverPhotoUrl) patch.coverPhotoUrl = coverPhotoUrl;
     await api(`/api/trips/${state.currentTrip.id}`, {
       method: "PATCH",
-      body: { actor: state.user, patch }
+      body: accessPayload({ patch })
     });
     await refreshCurrentTrip();
     await loadTrips();
@@ -143,10 +145,13 @@ function bindEvents() {
     );
     if (!confirmed) return;
 
-    await api(`/api/trips/${state.currentTrip.id}`, {
+    const deletedTripId = state.currentTrip.id;
+    await api(`/api/trips/${deletedTripId}`, {
       method: "DELETE",
-      body: { actor: state.user }
+      body: accessPayload()
     });
+    forgetInvite(deletedTripId);
+    state.trips = state.trips.filter((trip) => trip.id !== deletedTripId);
     state.currentTrip = null;
     await loadTrips();
     history.replaceState(null, "", "/app");
@@ -164,14 +169,7 @@ function bindEvents() {
   els.inviteButton.addEventListener("click", () => inviteCurrentTrip().catch(showError));
   els.quickAddButton.addEventListener("click", () => {
     if (!state.currentTrip) return;
-    state.activeTab = "itinerary";
-    renderPanels();
-    const addBox = document.querySelector("#addItineraryBox");
-    if (addBox) {
-      addBox.open = true;
-      addBox.scrollIntoView({ behavior: "smooth", block: "center" });
-      window.setTimeout(() => addBox.querySelector("input[name='title']")?.focus(), 250);
-    }
+    openItineraryCreateView();
   });
 
   els.itineraryPanel.addEventListener("submit", async (event) => {
@@ -180,10 +178,10 @@ function bindEvents() {
       const item = await formObject(event.target);
       await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
         method: "POST",
-        body: { actor: state.user, item }
+        body: accessPayload({ item })
       });
-      event.target.reset();
-      syncTypeFields(event.target);
+      state.itineraryView = "list";
+      state.editingItineraryId = "";
       await refreshCurrentTrip();
       toast("行程已新增");
       return;
@@ -195,8 +193,10 @@ function bindEvents() {
       const patch = await formObject(event.target);
       await api(`/api/trips/${state.currentTrip.id}/itinerary/${itemId}`, {
         method: "PATCH",
-        body: { actor: state.user, patch }
+        body: accessPayload({ patch })
       });
+      state.itineraryView = "list";
+      state.editingItineraryId = "";
       await refreshCurrentTrip();
       toast("行程已修改");
     }
@@ -214,9 +214,21 @@ function bindEvents() {
   });
 
   els.itineraryPanel.addEventListener("click", async (event) => {
+    const newButton = event.target.closest("[data-itinerary-new]");
+    if (newButton) {
+      openItineraryCreateView();
+      return;
+    }
+
+    const backButton = event.target.closest("[data-itinerary-back]");
+    if (backButton) {
+      openItineraryListView();
+      return;
+    }
+
     const editButton = event.target.closest("[data-edit-toggle]");
     if (editButton) {
-      editButton.closest("article")?.querySelector("details")?.setAttribute("open", "");
+      openItineraryEditView(editButton.dataset.editToggle);
       return;
     }
 
@@ -225,8 +237,14 @@ function bindEvents() {
     if (!window.confirm("確定刪除這筆行程嗎？")) return;
     await api(`/api/trips/${state.currentTrip.id}/itinerary/${button.dataset.deleteItem}`, {
       method: "DELETE",
-      body: { actor: state.user }
+      body: accessPayload()
     });
+    state.itineraryView = "list";
+    state.editingItineraryId = "";
+    if (state.currentTrip?.itinerary) {
+      state.currentTrip.itinerary = state.currentTrip.itinerary.filter((item) => item.id !== button.dataset.deleteItem);
+      renderPanels();
+    }
     await refreshCurrentTrip();
     toast("行程已刪除");
   });
@@ -237,7 +255,7 @@ function bindEvents() {
     const todo = await formObject(event.target);
     await api(`/api/trips/${state.currentTrip.id}/todos`, {
       method: "POST",
-      body: { actor: state.user, todo }
+      body: accessPayload({ todo })
     });
     event.target.reset();
     await refreshCurrentTrip();
@@ -250,7 +268,7 @@ function bindEvents() {
     await api(`/api/trips/${state.currentTrip.id}/todos/${target.dataset.todoId}`, {
       method: "PATCH",
       body: {
-        actor: state.user,
+        ...accessPayload(),
         patch: { [target.dataset.todoField]: target.value }
       }
     });
@@ -263,8 +281,12 @@ function bindEvents() {
     if (!window.confirm("確定刪除這個待辦嗎？")) return;
     await api(`/api/trips/${state.currentTrip.id}/todos/${button.dataset.deleteTodo}`, {
       method: "DELETE",
-      body: { actor: state.user }
+      body: accessPayload()
     });
+    if (state.currentTrip?.todos) {
+      state.currentTrip.todos = state.currentTrip.todos.filter((todo) => todo.id !== button.dataset.deleteTodo);
+      renderPanels();
+    }
     await refreshCurrentTrip();
     toast("待辦已刪除");
   });
@@ -275,7 +297,7 @@ function bindEvents() {
     const wish = await formObject(event.target);
     await api(`/api/trips/${state.currentTrip.id}/wishes`, {
       method: "POST",
-      body: { actor: state.user, wish }
+      body: accessPayload({ wish })
     });
     event.target.reset();
     await refreshCurrentTrip();
@@ -288,7 +310,7 @@ function bindEvents() {
     await api(`/api/trips/${state.currentTrip.id}/wishes/${target.dataset.wishId}`, {
       method: "PATCH",
       body: {
-        actor: state.user,
+        ...accessPayload(),
         patch: { [target.dataset.wishField]: target.value }
       }
     });
@@ -301,8 +323,12 @@ function bindEvents() {
     if (!window.confirm("確定刪除這個願望嗎？")) return;
     await api(`/api/trips/${state.currentTrip.id}/wishes/${button.dataset.deleteWish}`, {
       method: "DELETE",
-      body: { actor: state.user }
+      body: accessPayload()
     });
+    if (state.currentTrip?.wishes) {
+      state.currentTrip.wishes = state.currentTrip.wishes.filter((wish) => wish.id !== button.dataset.deleteWish);
+      renderPanels();
+    }
     await refreshCurrentTrip();
     toast("願望已刪除");
   });
@@ -319,7 +345,7 @@ function bindEvents() {
     await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
       method: "POST",
       body: {
-        actor: state.user,
+        ...accessPayload(),
         item: {
           type: "activity",
           title: button.dataset.name,
@@ -397,7 +423,7 @@ async function joinTripFromInvite(tripId, inviteToken) {
   try {
     const { trip } = await api(`/api/trips/${tripId}/join`, {
       method: "POST",
-      body: { inviteToken, actor: state.user }
+      body: accessPayload({ inviteToken })
     });
     rememberInvite(tripId, inviteToken);
     state.currentTrip = trip;
@@ -431,6 +457,8 @@ async function selectTrip(tripId, inviteToken = "") {
   if (inviteToken) rememberInvite(tripId, inviteToken);
   state.isCreating = false;
   state.currentTrip = trip;
+  state.itineraryView = "list";
+  state.editingItineraryId = "";
   await loadRecommendations(true);
   render();
   history.replaceState(null, "", `/app?trip=${trip.id}`);
@@ -455,7 +483,7 @@ async function updateItineraryCompleted(toggle) {
   try {
     await api(`/api/trips/${state.currentTrip.id}/itinerary/${toggle.dataset.itemId}`, {
       method: "PATCH",
-      body: { actor: state.user, patch: { completed } }
+      body: accessPayload({ patch: { completed } })
     });
     await refreshCurrentTrip();
     toast(completed ? "已標記完成" : "已改回未完成");
@@ -608,21 +636,108 @@ function tripMeta(trip) {
 
 function renderItinerary() {
   const trip = state.currentTrip;
+  const view = state.itineraryView || "list";
+
+  if (view === "new") {
+    els.itineraryPanel.innerHTML = `
+      <section class="itinerary-screen itinerary-form-screen">
+        <div class="screen-topbar">
+          <button class="plain-button" type="button" data-itinerary-back>← 回行程</button>
+          <div>
+            <p class="eyebrow">新增行程</p>
+            <h3>新增一筆旅遊項目</h3>
+            <p class="muted">像記帳 App 一樣單獨進入新增頁，填完儲存後會回到行程清單。</p>
+          </div>
+        </div>
+        <form class="item-form screen-form">
+          ${itineraryFields()}
+          <div class="form-action-row full">
+            <button class="plain-button" type="button" data-itinerary-back>取消</button>
+            <button class="primary-button" type="submit">新增行程</button>
+          </div>
+        </form>
+      </section>
+    `;
+    els.itineraryPanel.querySelectorAll(".item-form").forEach(syncTypeFields);
+    window.setTimeout(() => els.itineraryPanel.querySelector("input[name='title']")?.focus(), 120);
+    return;
+  }
+
+  if (view === "edit") {
+    const item = trip.itinerary.find((entry) => entry.id === state.editingItineraryId);
+    if (!item) {
+      state.itineraryView = "list";
+      state.editingItineraryId = "";
+      return renderItinerary();
+    }
+
+    els.itineraryPanel.innerHTML = `
+      <section class="itinerary-screen itinerary-form-screen">
+        <div class="screen-topbar">
+          <button class="plain-button" type="button" data-itinerary-back>← 回行程</button>
+          <div>
+            <p class="eyebrow">修改行程</p>
+            <h3>${escapeHtml(item.title || "這筆行程")}</h3>
+            <p class="muted">目前正在修改單一行程，儲存後會回到行程清單。</p>
+          </div>
+        </div>
+        <form class="item-edit-form screen-form" data-item-id="${escapeAttr(item.id)}">
+          ${itineraryFields(item)}
+          <div class="form-action-row full">
+            <button class="plain-button" type="button" data-itinerary-back>取消</button>
+            <button class="primary-button" type="submit">儲存修改</button>
+          </div>
+        </form>
+      </section>
+    `;
+    els.itineraryPanel.querySelectorAll(".item-edit-form").forEach(syncTypeFields);
+    return;
+  }
+
   const rows = trip.itinerary.length
     ? groupedItineraryRows(trip.itinerary)
-    : `<p class="muted">還沒有行程。先用上方表單新增一筆。</p>`;
+    : `<p class="muted empty-itinerary-note">還沒有行程。按「新增行程」建立第一筆。</p>`;
 
   els.itineraryPanel.innerHTML = `
-    <details id="addItineraryBox" class="add-entry">
-      <summary>新增行程</summary>
-      <form class="item-form">
-        ${itineraryFields()}
-        <button class="primary-button full" type="submit">新增行程</button>
-      </form>
-    </details>
-    <div class="row-list">${rows}</div>
+    <section class="itinerary-screen itinerary-list-screen">
+      <div class="itinerary-list-head">
+        <div>
+          <p class="eyebrow">行程清單</p>
+          <h3>瀏覽行程</h3>
+          <p class="muted">每一筆可標記是否已完成，也可以進入單獨畫面修改。</p>
+        </div>
+        <button class="primary-button" type="button" data-itinerary-new>＋ 新增行程</button>
+      </div>
+      <div class="row-list">${rows}</div>
+    </section>
   `;
-  els.itineraryPanel.querySelectorAll(".item-form, .item-edit-form").forEach(syncTypeFields);
+}
+
+function openItineraryCreateView() {
+  state.activeTab = "itinerary";
+  state.itineraryView = "new";
+  state.editingItineraryId = "";
+  renderPanels();
+  renderItinerary();
+  window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}
+
+function openItineraryEditView(itemId) {
+  state.activeTab = "itinerary";
+  state.itineraryView = "edit";
+  state.editingItineraryId = itemId || "";
+  renderPanels();
+  renderItinerary();
+  window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}
+
+function openItineraryListView() {
+  state.activeTab = "itinerary";
+  state.itineraryView = "list";
+  state.editingItineraryId = "";
+  renderPanels();
+  renderItinerary();
+  window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 }
 
 function renderTodos() {
@@ -782,13 +897,6 @@ function itineraryRow(item) {
         <button class="plain-button" type="button" data-edit-toggle="${escapeAttr(item.id)}">修改</button>
         <button class="danger-button" type="button" data-delete-item="${escapeAttr(item.id)}">刪除</button>
       </div>
-      <details class="edit-details full">
-        <summary>修改這筆資料</summary>
-        <form class="item-edit-form" data-item-id="${escapeAttr(item.id)}">
-          ${itineraryFields(item)}
-          <button class="primary-button full" type="submit">儲存修改</button>
-        </form>
-      </details>
     </article>
   `;
 }
@@ -1099,6 +1207,24 @@ function rememberInvite(tripId, inviteToken) {
   }
 }
 
+function forgetInvite(tripId) {
+  if (!tripId) return;
+  try {
+    const next = knownInvites().filter((value) => !value.startsWith(`${tripId}:`));
+    localStorage.setItem(KNOWN_INVITES_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage may be unavailable in some restricted in-app browsers.
+  }
+}
+
+function accessPayload(extra = {}) {
+  return {
+    actor: state.user,
+    inviteToken: state.currentTrip?.inviteToken || "",
+    ...extra
+  };
+}
+
 async function uploadImageFile(input) {
   const file = input?.files?.[0];
   if (!file) return "";
@@ -1133,8 +1259,15 @@ async function uploadImageFiles(input) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    method: options.method || "GET",
+  const method = options.method || "GET";
+  let url = path;
+  if (method === "GET") {
+    const separator = url.includes("?") ? "&" : "?";
+    url = `${url}${separator}_=${Date.now()}`;
+  }
+  const response = await fetch(url, {
+    method,
+    cache: "no-store",
     headers: {
       "Content-Type": "application/json"
     },

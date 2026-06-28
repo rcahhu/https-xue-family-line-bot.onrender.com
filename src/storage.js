@@ -723,6 +723,13 @@ function findTrip(db, id) {
 function requireMember(trip, actor = {}) {
   const userId = actor.lineUserId || actor.userId;
   const sourceKey = actor.sourceKey || "";
+  const inviteToken = cleanText(actor.inviteToken || actor.tripInviteToken || "");
+
+  // The app is meant for a private family diary.  LINE/LIFF sometimes gives a
+  // different guest id after browser changes, so destructive actions should
+  // still work when the user is opening the diary through its own invite token.
+  if (inviteToken && inviteToken === trip.inviteToken) return;
+
   if (!userId && !sourceKey) throw new HttpError(401, "需要 LINE 使用者身份");
   if (!canSeeTrip(trip, { userId, sourceKey })) {
     if (process.env.OPEN_DIARY_BOOK !== "false" && userId) {

@@ -147,7 +147,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === "POST" && url.pathname === "/api/trips") {
     const body = await readJson(req);
-    const actor = normalizeActor(body.actor);
+    const actor = accessActor(body);
     const trip = await store.createTrip({
       title: body.title,
       area: body.area || body.title,
@@ -159,7 +159,7 @@ async function handleApi(req, res, url) {
       lodgingPreference: body.lodgingPreference || "",
       coverPhotoUrl: body.coverPhotoUrl || "",
       owner: actor,
-      sourceKey: body.sourceKey || ""
+      sourceKey: body.sourceKey || actor.sourceKey || ""
     });
     return sendJson(res, { trip }, 201);
   }
@@ -186,13 +186,13 @@ async function handleApi(req, res, url) {
 
   if (req.method === "PATCH" && parts.length === 3) {
     const body = await readJson(req);
-    const trip = await store.updateTrip(tripId, body.patch || body, normalizeActor(body.actor));
+    const trip = await store.updateTrip(tripId, body.patch || body, accessActor(body));
     return sendJson(res, { trip });
   }
 
   if (req.method === "DELETE" && parts.length === 3) {
     const body = await readJson(req);
-    const result = await store.deleteTrip(tripId, normalizeActor(body.actor));
+    const result = await store.deleteTrip(tripId, accessActor(body));
     return sendJson(res, result);
   }
 
@@ -200,8 +200,8 @@ async function handleApi(req, res, url) {
     const body = await readJson(req);
     const result = await store.joinTrip(tripId, {
       inviteToken: body.inviteToken,
-      actor: normalizeActor(body.actor),
-      sourceKey: body.sourceKey || ""
+      actor: accessActor(body),
+      sourceKey: body.sourceKey || accessActor(body).sourceKey || ""
     });
     return sendJson(res, result);
   }
@@ -267,7 +267,7 @@ async function handleUpload(req, res) {
 async function handleItineraryApi(req, res, tripId, parts) {
   if (req.method === "POST" && parts.length === 4) {
     const body = await readJson(req);
-    const item = await store.addItineraryItem(tripId, body.item || body, normalizeActor(body.actor));
+    const item = await store.addItineraryItem(tripId, body.item || body, accessActor(body));
     return sendJson(res, { item }, 201);
   }
 
@@ -277,14 +277,14 @@ async function handleItineraryApi(req, res, tripId, parts) {
       tripId,
       parts[4],
       body.patch || body,
-      normalizeActor(body.actor)
+      accessActor(body)
     );
     return sendJson(res, { item });
   }
 
   if (req.method === "DELETE" && parts.length === 5) {
     const body = await readJson(req);
-    const result = await store.deleteItineraryItem(tripId, parts[4], normalizeActor(body.actor));
+    const result = await store.deleteItineraryItem(tripId, parts[4], accessActor(body));
     return sendJson(res, result);
   }
 
@@ -294,19 +294,19 @@ async function handleItineraryApi(req, res, tripId, parts) {
 async function handleWishesApi(req, res, tripId, parts) {
   if (req.method === "POST" && parts.length === 4) {
     const body = await readJson(req);
-    const wish = await store.addWish(tripId, body.wish || body, normalizeActor(body.actor));
+    const wish = await store.addWish(tripId, body.wish || body, accessActor(body));
     return sendJson(res, { wish }, 201);
   }
 
   if (req.method === "PATCH" && parts.length === 5) {
     const body = await readJson(req);
-    const wish = await store.updateWish(tripId, parts[4], body.patch || body, normalizeActor(body.actor));
+    const wish = await store.updateWish(tripId, parts[4], body.patch || body, accessActor(body));
     return sendJson(res, { wish });
   }
 
   if (req.method === "DELETE" && parts.length === 5) {
     const body = await readJson(req);
-    const result = await store.deleteWish(tripId, parts[4], normalizeActor(body.actor));
+    const result = await store.deleteWish(tripId, parts[4], accessActor(body));
     return sendJson(res, result);
   }
 
@@ -316,23 +316,30 @@ async function handleWishesApi(req, res, tripId, parts) {
 async function handleTodosApi(req, res, tripId, parts) {
   if (req.method === "POST" && parts.length === 4) {
     const body = await readJson(req);
-    const todo = await store.addTodoItem(tripId, body.todo || body, normalizeActor(body.actor));
+    const todo = await store.addTodoItem(tripId, body.todo || body, accessActor(body));
     return sendJson(res, { todo }, 201);
   }
 
   if (req.method === "PATCH" && parts.length === 5) {
     const body = await readJson(req);
-    const todo = await store.updateTodoItem(tripId, parts[4], body.patch || body, normalizeActor(body.actor));
+    const todo = await store.updateTodoItem(tripId, parts[4], body.patch || body, accessActor(body));
     return sendJson(res, { todo });
   }
 
   if (req.method === "DELETE" && parts.length === 5) {
     const body = await readJson(req);
-    const result = await store.deleteTodoItem(tripId, parts[4], normalizeActor(body.actor));
+    const result = await store.deleteTodoItem(tripId, parts[4], accessActor(body));
     return sendJson(res, result);
   }
 
   throw new HttpError(404, "Not found");
+}
+
+function accessActor(body = {}) {
+  const actor = normalizeActor(body.actor || body);
+  const inviteToken = String(body.inviteToken || body.actor?.inviteToken || "").trim();
+  const sourceKey = String(body.sourceKey || body.actor?.sourceKey || "").trim();
+  return { ...actor, inviteToken, sourceKey };
 }
 
 async function serveStatic(req, res, pathname) {
@@ -429,7 +436,8 @@ function verifyLineSignature(rawBody, signature) {
 function sendJson(res, value, status = 200) {
   res.writeHead(status, {
     ...defaultHeaders(),
-    "Content-Type": "application/json; charset=utf-8"
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(value));
 }
