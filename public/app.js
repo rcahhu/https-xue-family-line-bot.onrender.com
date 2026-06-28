@@ -362,6 +362,12 @@ function bindEvents() {
   });
 
   els.wishesPanel.addEventListener("click", async (event) => {
+    const addButton = event.target.closest("[data-add-wish-itinerary]");
+    if (addButton) {
+      await addWishToItinerary(addButton.dataset.addWishItinerary);
+      return;
+    }
+
     const button = event.target.closest("[data-delete-wish]");
     if (!button) return;
     if (!window.confirm("確定刪除這個願望嗎？")) return;
@@ -669,6 +675,46 @@ async function updateItineraryCompleted(toggle) {
   } finally {
     toggle.disabled = false;
   }
+}
+
+async function addWishToItinerary(wishId) {
+  if (!state.currentTrip || !wishId) return;
+  const wish = state.currentTrip.wishes.find((entry) => entry.id === wishId);
+  if (!wish) return;
+
+  await api(`/api/trips/${state.currentTrip.id}/itinerary`, {
+    method: "POST",
+    body: accessPayload({ item: wishToItineraryItem(wish) })
+  });
+
+  await api(`/api/trips/${state.currentTrip.id}/wishes/${wish.id}`, {
+    method: "PATCH",
+    body: accessPayload({ patch: { status: "planned" } })
+  });
+
+  await refreshCurrentTrip();
+  state.activeTab = "itinerary";
+  state.itineraryView = "list";
+  render();
+  toast("已加入行程，日期時間可以再手動補上");
+}
+
+function wishToItineraryItem(wish = {}) {
+  const typeLabel = wishTypeLabel(wish.type);
+  return {
+    type: "activity",
+    title: wish.text || "未命名願望",
+    place: "",
+    date: "",
+    time: "",
+    note: `由許願加入：${typeLabel}`,
+    ticketStatus: "none",
+    reservationStatus: "none",
+    completed: false,
+    price: 0,
+    currency: "TWD",
+    splitMode: "equal"
+  };
 }
 
 async function loadRecommendations(force = false, coords = {}) {
@@ -1235,9 +1281,9 @@ function wishRow(wish) {
       <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="type" aria-label="願望種類">
         ${wishTypeOptions(wish.type)}
       </select>
-      <select data-wish-id="${escapeAttr(wish.id)}" data-wish-field="status" aria-label="願望狀態">
-        ${wishStatusOptions(wish.status)}
-      </select>
+      <button class="primary-button wish-add-button" type="button" data-add-wish-itinerary="${escapeAttr(wish.id)}" ${wish.status === "planned" ? "disabled" : ""}>
+        ${wish.status === "planned" ? "已加入行程" : "加入行程"}
+      </button>
       <button class="danger-button" type="button" data-delete-wish="${escapeAttr(wish.id)}">刪除</button>
     </article>
   `;

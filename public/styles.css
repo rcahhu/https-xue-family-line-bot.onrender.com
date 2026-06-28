@@ -1630,3 +1630,8 @@ h3 {
     align-items: center;
   }
 }
+
+.wish-add-button[disabled] {
+  opacity: 0.65;
+  cursor: default;
+}
