@@ -1159,9 +1159,15 @@ function buildSettlementSummary(trip = state.currentTrip) {
 
   return Array.from(byCurrency.values()).map((group) => {
     if (group.equalTotal > 0) {
-      for (const share of equalSharesForSettlement(group.equalTotal)) {
+      const equalShares = equalSharesForSettlement(group.equalTotal);
+      for (const share of equalShares) {
         const ledger = ledgerFor(group.ledgers, share.id, share.name);
         ledger.owes += share.amount;
+      }
+      const roundedTotal = equalShares.reduce((sum, share) => sum + Number(share.amount || 0), 0);
+      const diff = roundMoney(roundedTotal - Math.round(Number(group.equalTotal || 0)));
+      if (diff) {
+        group.notes.push(`平均分攤尾差 ${money(Math.abs(diff), group.currency)} 已略過，讓成員金額盡量一致`);
       }
     }
     const ledgers = Array.from(group.ledgers.values()).map((entry) => ({
@@ -1200,13 +1206,12 @@ function equalSharesForSettlement(amount) {
   const members = expenseParticipants();
   if (!members.length) return [];
   const total = Math.round(Number(amount || 0));
-  const base = Math.floor(total / members.length);
-  let remainder = total - base * members.length;
-  return members.map((member) => {
-    const share = base + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder -= 1;
-    return { id: member.lineUserId || member.displayName, name: actorName(member), amount: share };
-  });
+  const share = Math.round(total / members.length);
+  return members.map((member) => ({
+    id: member.lineUserId || member.displayName,
+    name: actorName(member),
+    amount: share
+  }));
 }
 
 function customSharesForSettlement(item = {}) {
@@ -1834,15 +1839,14 @@ async function installTripShortcut() {
     state.deferredInstallPrompt = null;
     promptEvent.prompt();
     const result = await promptEvent.userChoice.catch(() => null);
-    toast(result?.outcome === "accepted" ? "已建立捷徑" : "已取消建立捷徑");
+    toast(result?.outcome === "accepted" ? "已建立桌面捷徑" : "已取消建立捷徑");
     return;
   }
 
   if (navigator.clipboard) {
     await navigator.clipboard.writeText(url);
   }
-  openExternalLink(url);
-  toast("已開外部瀏覽器；請用瀏覽器選單加到主畫面");
+  toast("此瀏覽器不支援直接建立；已複製捷徑連結，可用手機瀏覽器加到主畫面");
 }
 
 async function copyShortcutUrl() {

@@ -1906,3 +1906,27 @@ h3 {
     flex: 0 0 74px;
   }
 }
+
+
+/* 2026-06-30: unified tab button color and desktop shortcut wording. */
+.tabs .tab,
+.tabs .shortcut-tab-action,
+.tabs .settlement-tab-action {
+  color: #fff;
+  background: var(--brand);
+  box-shadow: 0 10px 22px rgba(35, 129, 92, 0.16);
+}
+
+.tabs .tab.is-active,
+.tabs .shortcut-tab-action:hover,
+.tabs .shortcut-tab-action:active,
+.tabs .settlement-tab-action.is-active,
+.tabs .settlement-tab-action:hover,
+.tabs .settlement-tab-action:active {
+  color: #fff;
+  background: var(--brand-dark);
+}
+
+.tabs .tab-members span {
+  display: block;
+}
