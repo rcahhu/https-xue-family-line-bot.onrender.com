@@ -1216,12 +1216,15 @@ function buildSettlementSummary(trip = state.currentTrip) {
         group.notes.push(`平均分攤尾差 ${money(Math.abs(diff), group.currency)} 已略過，讓成員金額盡量一致`);
       }
     }
-    const ledgers = Array.from(group.ledgers.values()).map((entry) => ({
-      ...entry,
-      paid: roundMoney(entry.paid),
-      owes: roundMoney(entry.owes),
-      net: roundMoney(entry.paid - entry.owes)
-    }));
+    const ledgers = Array.from(group.ledgers.values())
+      .map((entry) => ({
+        ...entry,
+        paid: roundMoney(entry.paid),
+        owes: roundMoney(entry.owes),
+        net: roundMoney(entry.paid - entry.owes),
+        order: settlementMemberOrder(entry)
+      }))
+      .sort((a, b) => a.order - b.order || String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"));
     return {
       currency: group.currency,
       ledgers,
@@ -1229,6 +1232,23 @@ function buildSettlementSummary(trip = state.currentTrip) {
       notes: group.notes
     };
   });
+}
+
+
+function settlementMemberOrder(entry = {}) {
+  const participants = expenseParticipants();
+  const index = participants.findIndex((member) => {
+    const memberId = cleanDisplayText(member.lineUserId || member.userId || member.displayName);
+    const entryId = cleanDisplayText(entry.id || entry.lineUserId || entry.userId || entry.name);
+    return participantMatches(member, entryId) || participantMatches(entry, memberId) || sameName(actorName(member), entry.name);
+  });
+  return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+}
+
+function sameName(a, b) {
+  const left = normalizeNameKey(a);
+  const right = normalizeNameKey(b);
+  return Boolean(left && right && left === right);
 }
 
 function ledgerFor(map, id, name) {
@@ -1277,14 +1297,15 @@ function customSharesForSettlement(item = {}) {
 }
 
 function settlementTransfers(ledgers = []) {
+  // 付款配對順序跟「同行成員」排序一致，不再用加入時間或金額大小決定誰被拆帳。
   const creditors = ledgers
     .filter((entry) => entry.net > 0)
-    .map((entry) => ({ ...entry, amount: entry.net }))
-    .sort((a, b) => b.amount - a.amount);
+    .map((entry) => ({ ...entry, amount: entry.net, order: settlementMemberOrder(entry) }))
+    .sort((a, b) => a.order - b.order || String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"));
   const debtors = ledgers
     .filter((entry) => entry.net < 0)
-    .map((entry) => ({ ...entry, amount: -entry.net }))
-    .sort((a, b) => b.amount - a.amount);
+    .map((entry) => ({ ...entry, amount: -entry.net, order: settlementMemberOrder(entry) }))
+    .sort((a, b) => a.order - b.order || String(a.name || "").localeCompare(String(b.name || ""), "zh-Hant"));
   const transfers = [];
   let i = 0;
   let j = 0;
