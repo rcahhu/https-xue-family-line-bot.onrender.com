@@ -950,6 +950,7 @@ function normalizeItineraryItem(item = {}) {
     payer: cleanText(item.payer),
     payerName: cleanText(item.payerName || item.payer),
     splitMode: normalizeSplitMode(item.splitMode),
+    customSplits: normalizeCustomSplits(item.customSplits),
     paidPeople: cleanText(item.paidPeople),
     unpaidPeople: cleanText(item.unpaidPeople),
     transportMode: cleanText(item.transportMode),
@@ -1002,8 +1003,20 @@ function normalizeStatus(value) {
 }
 
 function normalizeSplitMode(value) {
-  const allowed = new Set(["equal", "payer_only", "custom"]);
+  const allowed = new Set(["equal", "member_amounts", "payer_only", "custom"]);
+  if (value === "custom") return "member_amounts";
   return allowed.has(value) ? value : "equal";
+}
+
+function normalizeCustomSplits(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => ({
+      personId: cleanText(entry.personId || entry.id || entry.lineUserId || entry.displayName),
+      personName: cleanText(entry.personName || entry.name || entry.displayName || entry.personId),
+      amount: normalizePrice(entry.amount)
+    }))
+    .filter((entry) => entry.personId && entry.amount > 0);
 }
 
 function normalizeTodoCategory(value) {

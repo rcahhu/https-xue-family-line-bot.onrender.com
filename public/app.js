@@ -8,6 +8,7 @@ const state = {
   activeTab: "itinerary",
   itineraryView: "list",
   editingItineraryId: "",
+  showSettlement: false,
   recommendations: null,
   recommendationTripId: null
 };
@@ -255,12 +256,25 @@ function bindEvents() {
 
     const typeSelect = event.target.closest(".item-type-select");
     if (typeSelect) syncTypeFields(typeSelect.form);
+
+    const splitSelect = event.target.closest("select[name='splitMode']");
+    if (splitSelect) syncSplitFields(splitSelect.form);
   });
 
   els.itineraryPanel.addEventListener("click", async (event) => {
     const newButton = event.target.closest("[data-itinerary-new]");
     if (newButton) {
       openItineraryCreateView();
+      return;
+    }
+
+    const settlementButton = event.target.closest("[data-toggle-settlement]");
+    if (settlementButton) {
+      state.showSettlement = !state.showSettlement;
+      renderItinerary();
+      if (state.showSettlement) {
+        window.setTimeout(() => document.querySelector(".settlement-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }
       return;
     }
 
@@ -891,7 +905,7 @@ function renderItinerary() {
         </form>
       </section>
     `;
-    els.itineraryPanel.querySelectorAll(".item-form").forEach(syncTypeFields);
+    els.itineraryPanel.querySelectorAll(".item-form").forEach((form) => { syncTypeFields(form); syncSplitFields(form); });
     window.setTimeout(() => els.itineraryPanel.querySelector("input[name='title']")?.focus(), 120);
     return;
   }
@@ -923,7 +937,7 @@ function renderItinerary() {
         </form>
       </section>
     `;
-    els.itineraryPanel.querySelectorAll(".item-edit-form").forEach(syncTypeFields);
+    els.itineraryPanel.querySelectorAll(".item-edit-form").forEach((form) => { syncTypeFields(form); syncSplitFields(form); });
     return;
   }
 
@@ -939,8 +953,12 @@ function renderItinerary() {
           <h3>瀏覽行程</h3>
           <p class="muted">每一筆可標記是否已完成，也可以進入單獨畫面修改。</p>
         </div>
-        <button class="primary-button" type="button" data-itinerary-new>＋ 新增行程</button>
+        <div class="itinerary-head-actions">
+          <button class="plain-button settlement-toggle" type="button" data-toggle-settlement>${state.showSettlement ? "收起結帳" : "最後結帳"}</button>
+          <button class="primary-button" type="button" data-itinerary-new>＋ 新增行程</button>
+        </div>
       </div>
+      ${state.showSettlement ? settlementCard(trip) : ""}
       <div class="row-list">${rows}</div>
     </section>
   `;
@@ -974,6 +992,164 @@ function openItineraryListView() {
   renderPanels();
   renderItinerary();
   window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}
+
+
+function settlementCard(trip = state.currentTrip) {
+  const summaries = buildSettlementSummary(trip);
+  return `
+    <section class="settlement-card">
+      <div class="settlement-head">
+        <div>
+          <p class="eyebrow">最後結帳</p>
+          <h3>自動算誰該付誰</h3>
+          <p class="muted">會抓每筆行程的「誰先付」與分帳方式；不同幣別會分開結算。</p>
+        </div>
+      </div>
+      ${summaries.length ? summaries.map(settlementCurrencyBlock).join("") : `<p class="muted">目前沒有需要結算的花費。</p>`}
+    </section>
+  `;
+}
+
+function settlementCurrencyBlock(summary) {
+  const ledgers = summary.ledgers.length
+    ? summary.ledgers.map((entry) => `
+      <tr>
+        <td>${escapeHtml(entry.name)}</td>
+        <td>${escapeHtml(money(entry.paid, summary.currency))}</td>
+        <td>${escapeHtml(money(entry.owes, summary.currency))}</td>
+        <td>${escapeHtml(money(entry.net, summary.currency))}</td>
+      </tr>
+    `).join("")
+    : `<tr><td colspan="4">沒有可結算資料</td></tr>`;
+  const transfers = summary.transfers.length
+    ? summary.transfers.map((entry) => `<li><strong>${escapeHtml(entry.from)}</strong> 付給 <strong>${escapeHtml(entry.to)}</strong> ${escapeHtml(money(entry.amount, summary.currency))}</li>`).join("")
+    : `<li>目前不用互相轉帳。</li>`;
+  const notes = summary.notes.length ? `<p class="settlement-note">${escapeHtml(summary.notes.join("；"))}</p>` : "";
+  return `
+    <div class="settlement-currency-block">
+      <h4>${escapeHtml(summary.currency)}</h4>
+      <div class="settlement-table-wrap">
+        <table class="settlement-table">
+          <thead><tr><th>成員</th><th>已先付</th><th>應負擔</th><th>結餘</th></tr></thead>
+          <tbody>${ledgers}</tbody>
+        </table>
+      </div>
+      <div class="settlement-transfer-box">
+        <strong>建議付款</strong>
+        <ul>${transfers}</ul>
+      </div>
+      ${notes}
+    </div>
+  `;
+}
+
+function buildSettlementSummary(trip = state.currentTrip) {
+  const byCurrency = new Map();
+  for (const item of trip?.itinerary || []) {
+    const amount = Number(item.price || 0);
+    if (!amount || item.splitMode === "payer_only") continue;
+    const currency = item.currency || "TWD";
+    if (!byCurrency.has(currency)) byCurrency.set(currency, { currency, ledgers: new Map(), notes: [] });
+    const group = byCurrency.get(currency);
+    const payer = participantEntryById(item.payer) || { id: item.payer || item.payerName || "payer", name: item.payerName || participantNameById(item.payer) || "先付款者" };
+    const payerLedger = ledgerFor(group.ledgers, payer.id, payer.name);
+    payerLedger.paid += amount;
+
+    const shares = item.splitMode === "member_amounts"
+      ? customSharesForSettlement(item)
+      : equalSharesForSettlement(amount);
+    if (item.splitMode === "member_amounts") {
+      const total = shares.reduce((sum, share) => sum + share.amount, 0);
+      if (Math.round(total) !== Math.round(amount)) {
+        group.notes.push(`${item.title || "某筆行程"} 的成員分帳合計 ${money(total, currency)}，與行程金額 ${money(amount, currency)} 不同`);
+      }
+    }
+    for (const share of shares) {
+      const ledger = ledgerFor(group.ledgers, share.id, share.name);
+      ledger.owes += share.amount;
+    }
+  }
+
+  return Array.from(byCurrency.values()).map((group) => {
+    const ledgers = Array.from(group.ledgers.values()).map((entry) => ({
+      ...entry,
+      paid: roundMoney(entry.paid),
+      owes: roundMoney(entry.owes),
+      net: roundMoney(entry.paid - entry.owes)
+    }));
+    return {
+      currency: group.currency,
+      ledgers,
+      transfers: settlementTransfers(ledgers),
+      notes: group.notes
+    };
+  });
+}
+
+function ledgerFor(map, id, name) {
+  const key = String(id || name || "member");
+  if (!map.has(key)) map.set(key, { id: key, name: name || key, paid: 0, owes: 0 });
+  const entry = map.get(key);
+  if (!entry.name && name) entry.name = name;
+  return entry;
+}
+
+function participantEntryById(id) {
+  const target = String(id || "").trim();
+  if (!target) return null;
+  const member = expenseParticipants().find((entry) => (entry.lineUserId || entry.displayName) === target);
+  return member ? { id: member.lineUserId || member.displayName, name: actorName(member) } : null;
+}
+
+function equalSharesForSettlement(amount) {
+  const members = expenseParticipants();
+  if (!members.length) return [];
+  const total = Math.round(Number(amount || 0));
+  const base = Math.floor(total / members.length);
+  let remainder = total - base * members.length;
+  return members.map((member) => {
+    const share = base + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder -= 1;
+    return { id: member.lineUserId || member.displayName, name: actorName(member), amount: share };
+  });
+}
+
+function customSharesForSettlement(item = {}) {
+  return (Array.isArray(item.customSplits) ? item.customSplits : [])
+    .map((entry) => ({
+      id: entry.personId || entry.personName,
+      name: entry.personName || participantNameById(entry.personId) || entry.personId || "成員",
+      amount: Number(entry.amount || 0)
+    }))
+    .filter((entry) => entry.id && entry.amount > 0);
+}
+
+function settlementTransfers(ledgers = []) {
+  const creditors = ledgers
+    .filter((entry) => entry.net > 0)
+    .map((entry) => ({ ...entry, amount: entry.net }))
+    .sort((a, b) => b.amount - a.amount);
+  const debtors = ledgers
+    .filter((entry) => entry.net < 0)
+    .map((entry) => ({ ...entry, amount: -entry.net }))
+    .sort((a, b) => b.amount - a.amount);
+  const transfers = [];
+  let i = 0;
+  let j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const amount = Math.min(debtors[i].amount, creditors[j].amount);
+    if (amount > 0) transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: roundMoney(amount) });
+    debtors[i].amount = roundMoney(debtors[i].amount - amount);
+    creditors[j].amount = roundMoney(creditors[j].amount - amount);
+    if (debtors[i].amount <= 0) i += 1;
+    if (creditors[j].amount <= 0) j += 1;
+  }
+  return transfers.filter((entry) => entry.amount > 0);
+}
+
+function roundMoney(value) {
+  return Math.round(Number(value || 0));
 }
 
 function renderTodos() {
@@ -1013,7 +1189,7 @@ function todoRow(todo) {
       <div class="row-title">
         <strong>${escapeHtml(todo.title)}</strong>
         <small>${todoCategoryLabel(todo.category)} · ${todoStatusLabel(todo.status)}${todo.relatedTitle ? ` · ${escapeHtml(todo.relatedTitle)}` : ""}</small>
-        ${todo.note ? `<small>備註：${escapeHtml(todo.note)}</small>` : ""}
+        ${todo.note ? `<small>備註：${linkifyText(todo.note)}</small>` : ""}
         <small class="audit-line">${auditLine(todo)}</small>
       </div>
       <select data-todo-id="${escapeAttr(todo.id)}" data-todo-field="status" aria-label="待辦狀態">
@@ -1059,7 +1235,7 @@ function itineraryFields(item = {}) {
     <section class="entry-money-card full" aria-label="花費與分帳">
       <div class="entry-money-title">
         <strong>花費與分帳</strong>
-        <span>不用收入、轉帳，只記這筆行程花了多少與誰先付。</span>
+        <span>可平均分攤，也可依同行成員逐一指定金額。</span>
       </div>
       <div class="field-grid compact-grid">
         <label>
@@ -1084,15 +1260,8 @@ function itineraryFields(item = {}) {
             ${splitModeOptions(item.splitMode || "equal")}
           </select>
         </label>
-        <label>
-          已付
-          <input name="paidPeople" autocomplete="off" placeholder="例如：吳小慈、爸爸" value="${escapeAttr(item.paidPeople || "")}" />
-        </label>
-        <label>
-          未付
-          <input name="unpaidPeople" autocomplete="off" placeholder="例如：媽媽、小孩" value="${escapeAttr(item.unpaidPeople || "")}" />
-        </label>
       </div>
+      ${memberSplitFields(item)}
     </section>
 
     <label class="wide">
@@ -1121,7 +1290,7 @@ function itineraryRow(item) {
         <small>${escapeHtml(formatWhen(item))}${item.place ? ` · ${escapeHtml(item.place)}` : ""}</small>
         ${paymentLine(item)}
         ${photoStrip(item.photoUrls)}
-        ${item.note ? `<small>備註：${escapeHtml(item.note)}</small>` : ""}
+        ${item.note ? `<small>備註：${linkifyText(item.note)}</small>` : ""}
         <small class="audit-line">${auditLine(item)}</small>
       </div>
       <div class="row-controls entry-side">
@@ -1170,11 +1339,17 @@ function paymentLine(item) {
     parts.push(`${payer} 先付 ${money(amount, item.currency)}`);
   }
   if (item.splitMode && item.splitMode !== "none") parts.push(splitModeLabel(item.splitMode));
-  const paid = cleanDisplayText(item.paidPeople);
-  const unpaid = cleanDisplayText(item.unpaidPeople);
-  if (paid) parts.push(`已付：${paid}`);
-  if (unpaid) parts.push(`未付：${unpaid}`);
+  const custom = customSplitSummary(item);
+  if (custom) parts.push(custom);
   return parts.length ? `<small class="payment-line">${escapeHtml(parts.join(" · "))}</small>` : "";
+}
+
+function customSplitSummary(item = {}) {
+  if (item.splitMode !== "member_amounts") return "";
+  const entries = (Array.isArray(item.customSplits) ? item.customSplits : [])
+    .filter((entry) => Number(entry.amount || 0) > 0)
+    .map((entry) => `${entry.personName || participantNameById(entry.personId) || "成員"} ${money(entry.amount, item.currency)}`);
+  return entries.length ? `明細：${entries.join("、")}` : "尚未填成員金額";
 }
 
 function totalItineraryCost(items = []) {
@@ -1205,6 +1380,44 @@ function expenseParticipants() {
   return Array.from(unique.values());
 }
 
+
+function memberSplitFields(item = {}) {
+  const members = expenseParticipants();
+  if (!members.length) {
+    return `<div class="member-split-card" data-custom-split-card hidden><p class="muted">先到「同行成員」加入家人，才能依成員分帳。</p></div>`;
+  }
+  return `
+    <div class="member-split-card" data-custom-split-card ${item.splitMode === "member_amounts" ? "" : "hidden"}>
+      <div class="member-split-title">
+        <strong>依成員分帳</strong>
+        <span>每個人旁邊填這筆行程要負擔的金額，最後結帳會一起計算。</span>
+      </div>
+      <div class="member-split-list">
+        ${members.map((member) => {
+          const id = member.lineUserId || member.displayName;
+          const name = actorName(member);
+          const amount = customSplitAmount(item.customSplits, id, name);
+          return `
+            <label class="member-split-row">
+              <span>${escapeHtml(name)}</span>
+              <input type="number" min="0" step="1" inputmode="decimal" placeholder="0" value="${escapeAttr(amount || "")}" data-custom-split-id="${escapeAttr(id)}" data-custom-split-name="${escapeAttr(name)}" />
+            </label>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+function customSplitAmount(customSplits = [], id = "", name = "") {
+  const targetId = String(id || "").trim();
+  const targetName = String(name || "").trim();
+  const found = (Array.isArray(customSplits) ? customSplits : []).find((entry) => {
+    return String(entry.personId || "").trim() === targetId || String(entry.personName || "").trim() === targetName;
+  });
+  return found ? Number(found.amount || 0) : "";
+}
+
 function participantOptions(selected) {
   const members = expenseParticipants();
   if (!members.length) return `<option value="">${escapeHtml(actorName(state.user))}</option>`;
@@ -1229,11 +1442,18 @@ function currencyOptions(selected) {
 }
 
 function splitModeOptions(selected) {
-  return selectOptions({ equal: "平均分攤", payer_only: "先記帳不分攤", custom: "自訂寫備註" }, selected || "equal");
+  return selectOptions(
+    {
+      equal: "平均分攤",
+      member_amounts: "依成員分帳",
+      payer_only: "先記帳不分攤"
+    },
+    selected || "equal"
+  );
 }
 
 function splitModeLabel(value) {
-  return { equal: "平均分攤", payer_only: "先記帳不分攤", custom: "自訂寫備註" }[value] || "平均分攤";
+  return { equal: "平均分攤", member_amounts: "依成員分帳", payer_only: "先記帳不分攤" }[value] || "平均分攤";
 }
 
 function cleanDisplayText(value) {
@@ -1324,7 +1544,7 @@ function recommendationItem(item) {
     <article class="recommendation-item">
       <div class="row-title">
         <strong>${escapeHtml(item.name)}</strong>
-        <small>${escapeHtml(item.area)} · ${escapeHtml(item.tag)} · ${escapeHtml(item.note)}</small>
+        <small>${escapeHtml(item.area)} · ${escapeHtml(item.tag)} · ${linkifyText(item.note)}</small>
       </div>
       <button class="plain-button" type="button"
         data-add-recommendation
@@ -1552,6 +1772,20 @@ async function formObject(form) {
     if (!value.payer && state.user?.lineUserId) value.payer = state.user.lineUserId;
     value.payerName = participantNameById(value.payer) || actorName(state.user || {});
   }
+  const splitInputs = Array.from(form.querySelectorAll("[data-custom-split-id]"));
+  if (splitInputs.length) {
+    value.customSplits = splitInputs
+      .map((input) => ({
+        personId: input.dataset.customSplitId || input.dataset.customSplitName || "",
+        personName: input.dataset.customSplitName || participantNameById(input.dataset.customSplitId) || input.dataset.customSplitId || "",
+        amount: Number(input.value || 0)
+      }))
+      .filter((entry) => entry.personId && entry.amount > 0);
+    for (const key of Object.keys(value)) {
+      if (key.startsWith("splitAmount__")) delete value[key];
+    }
+    if (value.splitMode !== "member_amounts") value.customSplits = [];
+  }
   const photoFileInput = form.querySelector("input[name='photoFiles']");
   if (photoFileInput) {
     const keepInputs = Array.from(form.querySelectorAll("input[name='keepPhotoUrls']"));
@@ -1575,6 +1809,14 @@ function syncTypeFields(form) {
   const type = form.querySelector(".item-type-select")?.value || "activity";
   form.querySelectorAll("[data-type-fields]").forEach((section) => {
     section.hidden = section.dataset.typeFields !== type;
+  });
+}
+
+function syncSplitFields(form) {
+  if (!form) return;
+  const splitMode = form.querySelector("select[name='splitMode']")?.value || "equal";
+  form.querySelectorAll("[data-custom-split-card]").forEach((section) => {
+    section.hidden = splitMode !== "member_amounts";
   });
 }
 
@@ -1795,6 +2037,52 @@ function toast(message) {
 function showError(error) {
   console.error(error);
   toast(error.message || "操作失敗");
+}
+
+
+function linkifyText(value) {
+  const text = String(value ?? "");
+  if (!text) return "";
+
+  const urlPattern = /(https?:\/\/[^\s<>'"]+|www\.[^\s<>'"]+)/gi;
+  const trailingChars = ".,;:!?，。！？、）)]}」』》";
+  let output = "";
+  let lastIndex = 0;
+  let match;
+
+  while ((match = urlPattern.exec(text)) !== null) {
+    output += escapeHtml(text.slice(lastIndex, match.index));
+    let label = match[0];
+    let trailing = "";
+    while (label && trailingChars.includes(label.at(-1))) {
+      trailing = label.at(-1) + trailing;
+      label = label.slice(0, -1);
+    }
+
+    const href = normalizeHttpUrl(label);
+    if (href) {
+      output += `<a class="inline-link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+    } else {
+      output += escapeHtml(label);
+    }
+    output += escapeHtml(trailing);
+    lastIndex = match.index + match[0].length;
+  }
+
+  output += escapeHtml(text.slice(lastIndex));
+  return output.replace(/\r?\n/g, "<br>");
+}
+
+function normalizeHttpUrl(rawUrl) {
+  if (!rawUrl) return "";
+  const candidate = rawUrl.startsWith("www.") ? `https://${rawUrl}` : rawUrl;
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    return parsed.href;
+  } catch {
+    return "";
+  }
 }
 
 function escapeHtml(value) {

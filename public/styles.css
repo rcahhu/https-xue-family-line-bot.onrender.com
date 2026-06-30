@@ -1635,3 +1635,162 @@ h3 {
   opacity: 0.65;
   cursor: default;
 }
+
+/* 2026-06-29: member-based split and final settlement */
+.itinerary-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settlement-toggle {
+  color: var(--brand-dark);
+  font-weight: 900;
+}
+
+.member-split-card {
+  margin-top: 12px;
+  border: 1px dashed rgba(35, 129, 92, 0.36);
+  border-radius: 12px;
+  padding: 12px;
+  background: #f7fcf8;
+}
+
+.member-split-card[hidden] {
+  display: none;
+}
+
+.member-split-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.member-split-title span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.member-split-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.member-split-row {
+  display: grid;
+  grid-template-columns: 1fr minmax(88px, 120px);
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.member-split-row input {
+  text-align: right;
+}
+
+.settlement-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(35, 129, 92, 0.26);
+  border-radius: 14px;
+  padding: 16px;
+  background: linear-gradient(180deg, #ffffff, #f3fbf6);
+  box-shadow: var(--shadow-soft);
+}
+
+.settlement-head h3 {
+  margin: 2px 0 4px;
+}
+
+.settlement-currency-block {
+  display: grid;
+  gap: 12px;
+}
+
+.settlement-currency-block h4 {
+  margin: 0;
+  color: var(--brand-dark);
+}
+
+.settlement-table-wrap {
+  overflow-x: auto;
+}
+
+.settlement-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.settlement-table th,
+.settlement-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.settlement-table th {
+  color: var(--muted);
+  font-size: 0.86rem;
+  background: #f7faf7;
+}
+
+.settlement-transfer-box {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.settlement-transfer-box ul {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.settlement-note {
+  margin: 0;
+  color: #9a6a2f;
+  font-size: 0.92rem;
+}
+
+@media (max-width: 640px) {
+  .itinerary-head-actions {
+    width: 100%;
+  }
+
+  .itinerary-head-actions .plain-button,
+  .itinerary-head-actions .primary-button {
+    flex: 1 1 100%;
+  }
+
+  .member-split-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 2026-06-29: make URLs in notes clickable and visually distinct. */
+.inline-link {
+  color: var(--brand-dark);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-all;
+}
+
+.inline-link:visited {
+  color: var(--brand-dark);
+}
