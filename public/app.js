@@ -180,6 +180,12 @@ function bindEvents() {
   });
 
   els.tabs.addEventListener("click", (event) => {
+    const settlementButton = event.target.closest("[data-toggle-settlement]");
+    if (settlementButton) {
+      toggleSettlementFromTop();
+      return;
+    }
+
     const tab = event.target.closest("[data-tab]");
     if (!tab) return;
     state.activeTab = tab.dataset.tab;
@@ -428,6 +434,13 @@ function bindEvents() {
   });
 
   document.body.addEventListener("click", (event) => {
+    const externalLink = event.target.closest("a[data-external-link]");
+    if (externalLink) {
+      event.preventDefault();
+      openExternalLink(externalLink.href);
+      return;
+    }
+
     const closeButton = event.target.closest("[data-photo-close]");
     const viewer = document.querySelector("#photoViewer");
     if (closeButton || event.target === viewer) {
@@ -954,7 +967,6 @@ function renderItinerary() {
           <p class="muted">每一筆可標記是否已完成，也可以進入單獨畫面修改。</p>
         </div>
         <div class="itinerary-head-actions">
-          <button class="plain-button settlement-toggle" type="button" data-toggle-settlement>${state.showSettlement ? "收起結帳" : "最後結帳"}</button>
           <button class="primary-button" type="button" data-itinerary-new>＋ 新增行程</button>
         </div>
       </div>
@@ -994,6 +1006,31 @@ function openItineraryListView() {
   window.setTimeout(() => els.itineraryPanel.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
 }
 
+function toggleSettlementFromTop() {
+  const isAlreadyShowing = state.activeTab === "itinerary" && state.itineraryView === "list" && state.showSettlement;
+  state.activeTab = "itinerary";
+  state.itineraryView = "list";
+  state.editingItineraryId = "";
+  state.showSettlement = !isAlreadyShowing;
+  updateScreenModeClasses();
+  renderPanels();
+  renderItinerary();
+  updateSettlementButtons();
+  if (state.showSettlement) {
+    window.setTimeout(() => document.querySelector(".settlement-card")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  }
+}
+
+function updateSettlementButtons() {
+  document.querySelectorAll("[data-toggle-settlement]").forEach((button) => {
+    if (button.classList.contains("settlement-tab-action")) {
+      button.innerHTML = state.showSettlement ? "收起<br />結帳" : "最後<br />結帳";
+      button.classList.toggle("is-active", state.activeTab === "itinerary" && state.showSettlement);
+    } else {
+      button.textContent = state.showSettlement ? "收起結帳" : "最後結帳";
+    }
+  });
+}
 
 function settlementCard(trip = state.currentTrip) {
   const summaries = buildSettlementSummary(trip);
@@ -1088,17 +1125,19 @@ function buildSettlementSummary(trip = state.currentTrip) {
 }
 
 function ledgerFor(map, id, name) {
-  const key = String(id || name || "member");
-  if (!map.has(key)) map.set(key, { id: key, name: name || key, paid: 0, owes: 0 });
+  const key = participantKey({ lineUserId: id, displayName: name }) || String(id || name || "member");
+  if (!map.has(key)) map.set(key, { id: key, name: name || id || key, paid: 0, owes: 0 });
   const entry = map.get(key);
-  if (!entry.name && name) entry.name = name;
+  if (!isTechnicalIdentity(name) && name && (isTechnicalIdentity(entry.name) || String(name).length > String(entry.name || "").length)) {
+    entry.name = name;
+  }
   return entry;
 }
 
 function participantEntryById(id) {
-  const target = String(id || "").trim();
+  const target = cleanDisplayText(id);
   if (!target) return null;
-  const member = expenseParticipants().find((entry) => (entry.lineUserId || entry.displayName) === target);
+  const member = expenseParticipants().find((entry) => participantMatches(entry, target));
   return member ? { id: member.lineUserId || member.displayName, name: actorName(member) } : null;
 }
 
@@ -1116,13 +1155,19 @@ function equalSharesForSettlement(amount) {
 }
 
 function customSharesForSettlement(item = {}) {
-  return (Array.isArray(item.customSplits) ? item.customSplits : [])
-    .map((entry) => ({
-      id: entry.personId || entry.personName,
-      name: entry.personName || participantNameById(entry.personId) || entry.personId || "成員",
-      amount: Number(entry.amount || 0)
-    }))
-    .filter((entry) => entry.id && entry.amount > 0);
+  const shares = new Map();
+  for (const entry of Array.isArray(item.customSplits) ? item.customSplits : []) {
+    const name = entry.personName || participantNameById(entry.personId) || entry.personId || "成員";
+    const id = entry.personId || name;
+    const amount = Number(entry.amount || 0);
+    if (!id || amount <= 0) continue;
+    const key = participantKey({ lineUserId: id, displayName: name }) || String(id);
+    const current = shares.get(key) || { id, name, amount: 0 };
+    current.amount += amount;
+    if (!isTechnicalIdentity(name) && (isTechnicalIdentity(current.name) || name.length > String(current.name || "").length)) current.name = name;
+    shares.set(key, current);
+  }
+  return Array.from(shares.values());
 }
 
 function settlementTransfers(ledgers = []) {
@@ -1367,17 +1412,47 @@ function totalItineraryCost(items = []) {
 function expenseParticipants() {
   const members = Array.isArray(state.currentTrip?.members) ? state.currentTrip.members : [];
   const unique = new Map();
-  for (const member of members) {
-    const id = member.lineUserId || member.displayName;
-    if (id) unique.set(id, { lineUserId: id, displayName: member.displayName || id });
-  }
-  if (state.user?.lineUserId) {
-    unique.set(state.user.lineUserId, {
-      lineUserId: state.user.lineUserId,
-      displayName: state.user.displayName || state.user.lineUserId
-    });
-  }
+  const add = (member = {}) => {
+    const displayName = cleanDisplayText(member.displayName || member.name || member.lineUserId || member.userId);
+    const ids = Array.isArray(member.lineUserIds) ? member.lineUserIds : [];
+    const lineUserId = cleanDisplayText(member.lineUserId || member.userId || ids.find(Boolean));
+    const key = participantKey({ ...member, lineUserId, displayName });
+    if (!key) return;
+    const incoming = {
+      ...member,
+      lineUserId,
+      lineUserIds: Array.from(new Set([lineUserId, ...ids].filter(Boolean))),
+      displayName: displayName || lineUserId
+    };
+    const existing = unique.get(key);
+    if (!existing) {
+      unique.set(key, incoming);
+      return;
+    }
+    existing.lineUserIds = Array.from(new Set([...(existing.lineUserIds || []), ...(incoming.lineUserIds || [])].filter(Boolean)));
+    if (!isTechnicalIdentity(incoming.displayName) && (isTechnicalIdentity(existing.displayName) || incoming.displayName.length > String(existing.displayName || "").length)) {
+      existing.displayName = incoming.displayName;
+    }
+    if (incoming.role === "owner" || existing.role === "owner") existing.role = "owner";
+  };
+  members.forEach(add);
+  if (state.user?.lineUserId || state.user?.displayName) add(state.user);
   return Array.from(unique.values());
+}
+
+function participantKey(member = {}) {
+  const nameKey = normalizeNameKey(member.displayName || member.name);
+  if (nameKey) return `name:${nameKey}`;
+  const ids = [member.lineUserId || member.userId, ...(Array.isArray(member.lineUserIds) ? member.lineUserIds : [])]
+    .map((value) => cleanDisplayText(value))
+    .filter((value) => value && !value.startsWith("manual:"));
+  return ids[0] ? `id:${ids[0]}` : "";
+}
+
+function normalizeNameKey(value) {
+  const name = cleanDisplayText(value);
+  if (!name || isTechnicalIdentity(name)) return "";
+  return name.replace(/\s+/g, "").toLowerCase();
 }
 
 
@@ -1431,10 +1506,20 @@ function participantOptions(selected) {
 }
 
 function participantNameById(id) {
-  const target = String(id || "").trim();
+  const target = cleanDisplayText(id);
   if (!target) return "";
-  const member = expenseParticipants().find((entry) => (entry.lineUserId || entry.displayName) === target);
+  const member = expenseParticipants().find((entry) => participantMatches(entry, target));
   return member ? actorName(member) : "";
+}
+
+function participantMatches(member = {}, target = "") {
+  const cleanTarget = cleanDisplayText(target);
+  if (!cleanTarget) return false;
+  const ids = [member.lineUserId || member.userId, ...(Array.isArray(member.lineUserIds) ? member.lineUserIds : [])]
+    .map((value) => cleanDisplayText(value))
+    .filter(Boolean);
+  if (ids.includes(cleanTarget)) return true;
+  return normalizeNameKey(member.displayName || member.name) === normalizeNameKey(cleanTarget);
 }
 
 function currencyOptions(selected) {
@@ -1611,6 +1696,7 @@ function renderPanels() {
   document.querySelectorAll("[data-tab]").forEach((tab) => {
     tab.classList.toggle("is-active", tab.dataset.tab === state.activeTab);
   });
+  updateSettlementButtons();
 }
 
 function openPhotoViewer(url) {
@@ -2061,7 +2147,7 @@ function linkifyText(value) {
 
     const href = normalizeHttpUrl(label);
     if (href) {
-      output += `<a class="inline-link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+      output += `<a class="inline-link" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer" data-external-link>${escapeHtml(label)}</a>`;
     } else {
       output += escapeHtml(label);
     }
@@ -2083,6 +2169,16 @@ function normalizeHttpUrl(rawUrl) {
   } catch {
     return "";
   }
+}
+
+function openExternalLink(rawUrl) {
+  const href = normalizeHttpUrl(rawUrl);
+  if (!href) return;
+  if (window.liff?.isInClient?.()) {
+    window.liff.openWindow({ url: href, external: true });
+    return;
+  }
+  window.open(href, "_blank", "noopener,noreferrer");
 }
 
 function escapeHtml(value) {

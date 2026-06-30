@@ -1794,3 +1794,24 @@ h3 {
 .inline-link:visited {
   color: var(--brand-dark);
 }
+
+/* 2026-06-29: move final settlement to the top tab row. */
+.settlement-tab-action {
+  flex: 0 0 86px;
+  color: #fff;
+  background: var(--brand);
+  line-height: 1.28;
+  box-shadow: 0 10px 22px rgba(35, 129, 92, 0.18);
+}
+
+.settlement-tab-action.is-active {
+  background: var(--brand-dark);
+}
+
+.settlement-tab-action br {
+  display: block;
+}
+
+.inline-link {
+  cursor: pointer;
+}
