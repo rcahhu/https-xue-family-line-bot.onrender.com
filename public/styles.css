@@ -1930,3 +1930,34 @@ h3 {
 .tabs .tab-members span {
   display: block;
 }
+
+/* 2026-06-30: member order controls and personal diary shortcut. */
+.member-row {
+  justify-content: flex-start;
+}
+
+.member-order-buttons {
+  display: grid;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.mini-icon-button {
+  min-height: 30px;
+  width: 34px;
+  border-radius: 10px;
+  color: var(--brand-dark);
+  background: var(--mint);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.member-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.member-role-label {
+  margin-left: auto;
+  white-space: nowrap;
+}

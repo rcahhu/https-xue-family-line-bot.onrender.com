@@ -17,6 +17,7 @@ const state = {
 const KNOWN_INVITES_KEY = "xue-family-known-trip-invites";
 const DISPLAY_NAME_KEY = "xue-family-display-name";
 const DISPLAY_NAME_KEY_PREFIX = "xue-family-display-name:";
+const TRIP_SHORTCUT_KEY_PREFIX = "xue-family-trip-shortcut:";
 
 const els = {
   userBadge: document.querySelector("#userBadge"),
@@ -75,10 +76,11 @@ async function init() {
   bindEvents();
   state.config = await api("/api/config");
   state.user = await resolveUser();
+  const params = new URLSearchParams(location.search);
+  applyShortcutIdentityFromUrl(params);
   await ensureDisplayName();
   renderUser();
 
-  const params = new URLSearchParams(location.search);
   const tripId = params.get("trip");
   const inviteToken = params.get("invite");
   state.isCreating = params.has("new");
@@ -216,9 +218,16 @@ function bindEvents() {
   });
 
   els.membersPanel.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-invite-current]");
-    if (!button) return;
-    inviteCurrentTrip().catch(showError);
+    const inviteButton = event.target.closest("[data-invite-current]");
+    if (inviteButton) {
+      inviteCurrentTrip().catch(showError);
+      return;
+    }
+
+    const moveButton = event.target.closest("[data-member-move]");
+    if (moveButton) {
+      moveMember(moveButton.dataset.memberId, moveButton.dataset.memberMove).catch(showError);
+    }
   });
 
   els.membersPanel.addEventListener("submit", async (event) => {
@@ -548,6 +557,43 @@ function guestUser() {
     displayName: savedDisplayName(id) || "",
     isGuest: true
   };
+}
+
+function applyShortcutIdentityFromUrl(params) {
+  if (!params) return;
+  const memberName = cleanDisplayName(params.get("memberName") || "");
+  const memberKey = cleanDisplayName(params.get("memberKey") || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+  if (!memberName || !memberKey) return;
+
+  const shortcutUserId = `shortcut:${memberKey}`;
+  const shouldUseShortcutUser = !state.user?.isLineUser || isTechnicalIdentity(state.user?.lineUserId);
+  if (shouldUseShortcutUser) {
+    state.user = {
+      ...state.user,
+      lineUserId: shortcutUserId,
+      displayName: memberName,
+      isGuest: false,
+      isShortcutUser: true
+    };
+  } else if (!userDisplayName(state.user)) {
+    state.user.displayName = memberName;
+  }
+  saveDisplayName(memberName, state.user?.lineUserId || shortcutUserId);
+}
+
+function shortcutKeyForTrip(tripId) {
+  const id = String(tripId || "default");
+  const key = `${TRIP_SHORTCUT_KEY_PREFIX}${id}`;
+  try {
+    let value = localStorage.getItem(key) || "";
+    if (!value) {
+      value = cryptoRandom() + cryptoRandom();
+      localStorage.setItem(key, value);
+    }
+    return value;
+  } catch {
+    return cryptoRandom() + cryptoRandom();
+  }
 }
 
 async function ensureDisplayName({ force = false } = {}) {
@@ -1700,6 +1746,27 @@ function recommendationItem(item) {
   `;
 }
 
+async function moveMember(memberId, direction) {
+  if (!state.currentTrip || !memberId) return;
+  const members = Array.isArray(state.currentTrip.members) ? [...state.currentTrip.members] : [];
+  const index = members.findIndex((member) => memberIdentityForOrder(member) === memberId);
+  if (index < 0) return;
+  const delta = direction === "up" ? -1 : 1;
+  const nextIndex = index + delta;
+  if (nextIndex < 0 || nextIndex >= members.length) return;
+  const next = [...members];
+  [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+  await api(`/api/trips/${state.currentTrip.id}/members/order`, {
+    method: "PATCH",
+    body: accessPayload({ order: next.map(memberIdentityForOrder) })
+  });
+  await refreshCurrentTrip();
+}
+
+function memberIdentityForOrder(member = {}) {
+  return String(member.lineUserId || member.userId || member.displayName || member.name || "");
+}
+
 function renderMembers() {
   const trip = state.currentTrip;
   const members = Array.isArray(trip.members) ? trip.members : [];
@@ -1728,15 +1795,21 @@ function renderMembers() {
     <div class="member-list">
       ${members.length ? members
         .map(
-          (member) => `
+          (member, index) => {
+            const memberId = memberIdentityForOrder(member);
+            return `
             <article class="member-row">
-              <div>
+              <div class="member-order-buttons" aria-label="調整成員順序">
+                <button class="mini-icon-button" type="button" data-member-move="up" data-member-id="${escapeAttr(memberId)}" ${index === 0 ? "disabled" : ""}>↑</button>
+                <button class="mini-icon-button" type="button" data-member-move="down" data-member-id="${escapeAttr(memberId)}" ${index === members.length - 1 ? "disabled" : ""}>↓</button>
+              </div>
+              <div class="member-main">
                 <strong>${escapeHtml(actorName(member))}</strong>
                 <small>${member.manual ? "手動新增" : "加入日記本"}：${formatDateTime(member.joinedAt)}</small>
               </div>
-              <span class="muted">${memberRoleLabel(member)}</span>
+              <span class="muted member-role-label">${memberRoleLabel(member)}</span>
             </article>
-          `
+          `}
         )
         .join("") : `<p class="muted">還沒有同行成員。可以先邀請家人，或手動新增。</p>`}
     </div>
@@ -1795,6 +1868,9 @@ function updateManifestLink() {
     params.set("trip", state.currentTrip.id);
     const token = state.currentTrip.inviteToken || inviteTokenForTrip(state.currentTrip.id);
     if (token) params.set("invite", token);
+    const name = userDisplayName(state.user);
+    if (name) params.set("memberName", name);
+    params.set("memberKey", shortcutKeyForTrip(state.currentTrip.id));
   }
   link.href = `/manifest.webmanifest${params.toString() ? `?${params}` : ""}`;
 }
@@ -1809,6 +1885,9 @@ function tripShortcutUrl(trip = state.currentTrip) {
   const params = new URLSearchParams({ trip: trip.id });
   const token = trip.inviteToken || inviteTokenForTrip(trip.id);
   if (token) params.set("invite", token);
+  const name = userDisplayName(state.user);
+  if (name) params.set("memberName", name);
+  params.set("memberKey", shortcutKeyForTrip(trip.id));
   const baseUrl = (state.config?.baseUrl || location.origin).replace(/\/$/, "");
   return `${baseUrl}/app?${params}`;
 }

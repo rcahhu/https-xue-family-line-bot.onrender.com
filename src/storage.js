@@ -203,12 +203,37 @@ export class TripStore {
         displayName,
         role: "manual",
         manual: true,
-        joinedAt: new Date().toISOString()
+        joinedAt: new Date().toISOString(),
+        sortOrder: (trip.members || []).length
       };
       trip.members = Array.isArray(trip.members) ? trip.members : [];
       trip.members.push(member);
       touch(trip, normalizeActor(actor));
       return member;
+    });
+  }
+
+  async reorderMembers(id, order = [], actor = {}) {
+    return this.mutate((db) => {
+      const trip = findTrip(db, id);
+      requireMember(trip, actor);
+      trip.members = mergeMembers(Array.isArray(trip.members) ? trip.members : [], trip.owner);
+      const ids = Array.isArray(order) ? order.map(cleanText).filter(Boolean) : [];
+      const remaining = [...trip.members];
+      const next = [];
+
+      for (const id of ids) {
+        const index = remaining.findIndex((member) => memberIdentityForOrder(member) === id);
+        if (index >= 0) next.push(remaining.splice(index, 1)[0]);
+      }
+
+      next.push(...remaining);
+      next.forEach((member, index) => {
+        member.sortOrder = index;
+      });
+      trip.members = next;
+      touch(trip, normalizeActor(actor));
+      return trip;
     });
   }
 
@@ -709,7 +734,8 @@ function hydrateMember(member) {
     lineUserIds: ids.includes(primaryId) ? ids : [primaryId, ...ids].filter(Boolean),
     role,
     manual: Boolean(member.manual || role === "manual"),
-    joinedAt: member.joinedAt || new Date().toISOString()
+    joinedAt: member.joinedAt || new Date().toISOString(),
+    sortOrder: Number.isFinite(Number(member.sortOrder)) ? Number(member.sortOrder) : undefined
   };
 }
 
@@ -740,7 +766,10 @@ function mergeMembers(members = [], owner = {}) {
     });
   }
 
-  result.sort((a, b) => memberRoleRank(a) - memberRoleRank(b) || new Date(a.joinedAt) - new Date(b.joinedAt));
+  result.sort((a, b) => memberSortRank(a) - memberSortRank(b) || memberRoleRank(a) - memberRoleRank(b) || new Date(a.joinedAt) - new Date(b.joinedAt));
+  result.forEach((member, index) => {
+    member.sortOrder = index;
+  });
   return result;
 }
 
@@ -792,7 +821,21 @@ function mergeMemberInto(target, incoming, ownerId = "") {
   if (incoming.joinedAt && (!target.joinedAt || new Date(incoming.joinedAt) < new Date(target.joinedAt))) {
     target.joinedAt = incoming.joinedAt;
   }
+  const targetOrder = Number(target.sortOrder);
+  const incomingOrder = Number(incoming.sortOrder);
+  if (Number.isFinite(incomingOrder) && (!Number.isFinite(targetOrder) || incomingOrder < targetOrder)) {
+    target.sortOrder = incomingOrder;
+  }
   return target;
+}
+
+function memberSortRank(member = {}) {
+  const value = Number(member.sortOrder);
+  return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+}
+
+function memberIdentityForOrder(member = {}) {
+  return cleanText(member.lineUserId || member.userId || member.displayName || member.name);
 }
 
 function memberRoleRank(member = {}) {

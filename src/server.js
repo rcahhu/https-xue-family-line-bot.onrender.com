@@ -210,6 +210,12 @@ async function handleApi(req, res, url) {
     return sendJson(res, result);
   }
 
+  if ((req.method === "PATCH" || req.method === "POST") && parts[3] === "members" && parts[4] === "order") {
+    const body = await readJson(req);
+    const trip = await store.reorderMembers(tripId, body.order || [], accessActor(body));
+    return sendJson(res, { trip });
+  }
+
   if (req.method === "POST" && parts[3] === "members") {
     const body = await readJson(req);
     const member = await store.addManualMember(tripId, body.member || body, accessActor(body));
@@ -447,8 +453,12 @@ function buildManifest(url) {
   const params = new URLSearchParams();
   const tripId = url.searchParams.get("trip") || "";
   const inviteToken = url.searchParams.get("invite") || "";
+  const memberName = url.searchParams.get("memberName") || "";
+  const memberKey = url.searchParams.get("memberKey") || "";
   if (tripId) params.set("trip", tripId);
   if (inviteToken) params.set("invite", inviteToken);
+  if (memberName) params.set("memberName", memberName);
+  if (memberKey) params.set("memberKey", memberKey);
   const startUrl = `/app${params.toString() ? `?${params}` : ""}`;
   return {
     name: tripId ? `${config.appName}｜日記捷徑` : config.appName,
