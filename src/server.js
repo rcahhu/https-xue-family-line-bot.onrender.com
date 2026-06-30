@@ -78,6 +78,10 @@ async function route(req, res) {
     return handleApi(req, res, url);
   }
 
+  if (req.method === "GET" && pathname === "/manifest.webmanifest") {
+    return sendJson(res, buildManifest(url), 200, "application/manifest+json; charset=utf-8");
+  }
+
   if (req.method === "GET" || req.method === "HEAD") {
     return serveStatic(req, res, pathname);
   }
@@ -439,10 +443,37 @@ function verifyLineSignature(rawBody, signature) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-function sendJson(res, value, status = 200) {
+function buildManifest(url) {
+  const params = new URLSearchParams();
+  const tripId = url.searchParams.get("trip") || "";
+  const inviteToken = url.searchParams.get("invite") || "";
+  if (tripId) params.set("trip", tripId);
+  if (inviteToken) params.set("invite", inviteToken);
+  const startUrl = `/app${params.toString() ? `?${params}` : ""}`;
+  return {
+    name: tripId ? `${config.appName}｜日記捷徑` : config.appName,
+    short_name: tripId ? "旅行日記" : config.appName,
+    start_url: startUrl,
+    scope: "/",
+    display: "standalone",
+    background_color: "#f7fbf8",
+    theme_color: "#54c58f",
+    description: "薛家旅行日記本",
+    icons: [
+      {
+        src: "/icon.svg",
+        sizes: "192x192 512x512",
+        type: "image/svg+xml",
+        purpose: "any maskable"
+      }
+    ]
+  };
+}
+
+function sendJson(res, value, status = 200, contentTypeValue = "application/json; charset=utf-8") {
   res.writeHead(status, {
     ...defaultHeaders(),
-    "Content-Type": "application/json; charset=utf-8",
+    "Content-Type": contentTypeValue,
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(value));
@@ -477,6 +508,7 @@ function contentType(extname) {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",

@@ -9,6 +9,7 @@ const state = {
   itineraryView: "list",
   editingItineraryId: "",
   showSettlement: false,
+  deferredInstallPrompt: null,
   recommendations: null,
   recommendationTripId: null
 };
@@ -52,6 +53,8 @@ const els = {
   recommendationsPanel: document.querySelector("#recommendationsPanel"),
   membersPanel: document.querySelector("#membersPanel"),
   quickAddButton: document.querySelector("#quickAddButton"),
+  shortcutModal: document.querySelector("#shortcutModal"),
+  shortcutUrlInput: document.querySelector("#shortcutUrlInput"),
   toast: document.querySelector("#toast")
 };
 
@@ -60,9 +63,15 @@ window.addEventListener("unhandledrejection", (event) => {
   showError(event.reason || new Error("操作失敗"));
 });
 
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  state.deferredInstallPrompt = event;
+});
+
 init().catch(showError);
 
 async function init() {
+  registerServiceWorker();
   bindEvents();
   state.config = await api("/api/config");
   state.user = await resolveUser();
@@ -134,6 +143,7 @@ function bindEvents() {
     state.itineraryView = "list";
     state.editingItineraryId = "";
     history.replaceState(null, "", "/app");
+    updateManifestLink();
     render();
   });
 
@@ -180,6 +190,12 @@ function bindEvents() {
   });
 
   els.tabs.addEventListener("click", (event) => {
+    const shortcutButton = event.target.closest("[data-trip-shortcut]");
+    if (shortcutButton) {
+      openShortcutModal();
+      return;
+    }
+
     const settlementButton = event.target.closest("[data-toggle-settlement]");
     if (settlementButton) {
       toggleSettlementFromTop();
@@ -434,6 +450,36 @@ function bindEvents() {
   });
 
   document.body.addEventListener("click", (event) => {
+    const shortcutButton = event.target.closest("[data-trip-shortcut]");
+    if (shortcutButton) {
+      openShortcutModal();
+      return;
+    }
+
+    const shortcutClose = event.target.closest("[data-shortcut-close]");
+    if (shortcutClose || event.target === els.shortcutModal) {
+      closeShortcutModal();
+      return;
+    }
+
+    const shortcutInstall = event.target.closest("[data-shortcut-install]");
+    if (shortcutInstall) {
+      installTripShortcut().catch(showError);
+      return;
+    }
+
+    const shortcutExternal = event.target.closest("[data-shortcut-external]");
+    if (shortcutExternal) {
+      openExternalLink(tripShortcutUrl());
+      return;
+    }
+
+    const shortcutCopy = event.target.closest("[data-shortcut-copy]");
+    if (shortcutCopy) {
+      copyShortcutUrl().catch(showError);
+      return;
+    }
+
     const externalLink = event.target.closest("a[data-external-link]");
     if (externalLink) {
       event.preventDefault();
@@ -792,6 +838,7 @@ function render() {
   els.inviteButton.disabled = !hasTrip;
   els.tripInviteButton.disabled = !hasTrip;
   els.quickAddButton.hidden = !hasTrip || isCreating;
+  updateManifestLink();
   if (!hasTrip || isCreating) return;
 
   els.currentTripTitle.value = state.currentTrip.title;
@@ -1024,10 +1071,10 @@ function toggleSettlementFromTop() {
 function updateSettlementButtons() {
   document.querySelectorAll("[data-toggle-settlement]").forEach((button) => {
     if (button.classList.contains("settlement-tab-action")) {
-      button.innerHTML = state.showSettlement ? "收起<br />結帳" : "最後<br />結帳";
+      button.innerHTML = state.showSettlement ? "收起<br />結算" : "結算";
       button.classList.toggle("is-active", state.activeTab === "itinerary" && state.showSettlement);
     } else {
-      button.textContent = state.showSettlement ? "收起結帳" : "最後結帳";
+      button.textContent = state.showSettlement ? "收起結算" : "結算";
     }
   });
 }
@@ -1038,7 +1085,7 @@ function settlementCard(trip = state.currentTrip) {
     <section class="settlement-card">
       <div class="settlement-head">
         <div>
-          <p class="eyebrow">最後結帳</p>
+          <p class="eyebrow">結算</p>
           <h3>自動算誰該付誰</h3>
           <p class="muted">會抓每筆行程的「誰先付」與分帳方式；不同幣別會分開結算。</p>
         </div>
@@ -1087,28 +1134,36 @@ function buildSettlementSummary(trip = state.currentTrip) {
     const amount = Number(item.price || 0);
     if (!amount || item.splitMode === "payer_only") continue;
     const currency = item.currency || "TWD";
-    if (!byCurrency.has(currency)) byCurrency.set(currency, { currency, ledgers: new Map(), notes: [] });
+    if (!byCurrency.has(currency)) byCurrency.set(currency, { currency, ledgers: new Map(), notes: [], equalTotal: 0 });
     const group = byCurrency.get(currency);
     const payer = participantEntryById(item.payer) || { id: item.payer || item.payerName || "payer", name: item.payerName || participantNameById(item.payer) || "先付款者" };
     const payerLedger = ledgerFor(group.ledgers, payer.id, payer.name);
     payerLedger.paid += amount;
 
-    const shares = item.splitMode === "member_amounts"
-      ? customSharesForSettlement(item)
-      : equalSharesForSettlement(amount);
     if (item.splitMode === "member_amounts") {
+      const shares = customSharesForSettlement(item);
       const total = shares.reduce((sum, share) => sum + share.amount, 0);
       if (Math.round(total) !== Math.round(amount)) {
         group.notes.push(`${item.title || "某筆行程"} 的成員分帳合計 ${money(total, currency)}，與行程金額 ${money(amount, currency)} 不同`);
       }
-    }
-    for (const share of shares) {
-      const ledger = ledgerFor(group.ledgers, share.id, share.name);
-      ledger.owes += share.amount;
+      for (const share of shares) {
+        const ledger = ledgerFor(group.ledgers, share.id, share.name);
+        ledger.owes += share.amount;
+      }
+    } else {
+      // 平均分攤要先把同一幣別的所有平均項目合併，最後再除以同行成員。
+      // 這樣不會發生每一筆各自四捨五入，導致某個人被多扣或少扣好幾元。
+      group.equalTotal += amount;
     }
   }
 
   return Array.from(byCurrency.values()).map((group) => {
+    if (group.equalTotal > 0) {
+      for (const share of equalSharesForSettlement(group.equalTotal)) {
+        const ledger = ledgerFor(group.ledgers, share.id, share.name);
+        ledger.owes += share.amount;
+      }
+    }
     const ledgers = Array.from(group.ledgers.values()).map((entry) => ({
       ...entry,
       paid: roundMoney(entry.paid),
@@ -1715,6 +1770,90 @@ function closePhotoViewer() {
   viewer.hidden = true;
   if (image) image.src = "";
   document.body.classList.remove("photo-viewer-open");
+}
+
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // 桌面捷徑仍可用一般瀏覽器「加到主畫面」，service worker 失敗不阻擋主功能。
+    });
+  });
+}
+
+function updateManifestLink() {
+  const link = document.querySelector("#dynamicManifest");
+  if (!link) return;
+  const params = new URLSearchParams();
+  if (state.currentTrip?.id && !state.isCreating) {
+    params.set("trip", state.currentTrip.id);
+    const token = state.currentTrip.inviteToken || inviteTokenForTrip(state.currentTrip.id);
+    if (token) params.set("invite", token);
+  }
+  link.href = `/manifest.webmanifest${params.toString() ? `?${params}` : ""}`;
+}
+
+function inviteTokenForTrip(tripId) {
+  const entry = knownInvites().find((value) => value.startsWith(`${tripId}:`));
+  return entry ? entry.slice(String(tripId).length + 1) : "";
+}
+
+function tripShortcutUrl(trip = state.currentTrip) {
+  if (!trip) return `${location.origin}/app`;
+  const params = new URLSearchParams({ trip: trip.id });
+  const token = trip.inviteToken || inviteTokenForTrip(trip.id);
+  if (token) params.set("invite", token);
+  const baseUrl = (state.config?.baseUrl || location.origin).replace(/\/$/, "");
+  return `${baseUrl}/app?${params}`;
+}
+
+function openShortcutModal() {
+  if (!state.currentTrip) {
+    toast("請先打開一本日記");
+    return;
+  }
+  updateManifestLink();
+  if (els.shortcutUrlInput) els.shortcutUrlInput.value = tripShortcutUrl();
+  els.shortcutModal.hidden = false;
+  document.body.classList.add("shortcut-modal-open");
+}
+
+function closeShortcutModal() {
+  if (!els.shortcutModal || els.shortcutModal.hidden) return;
+  els.shortcutModal.hidden = true;
+  document.body.classList.remove("shortcut-modal-open");
+}
+
+async function installTripShortcut() {
+  const url = tripShortcutUrl();
+  if (els.shortcutUrlInput) els.shortcutUrlInput.value = url;
+
+  if (state.deferredInstallPrompt) {
+    const promptEvent = state.deferredInstallPrompt;
+    state.deferredInstallPrompt = null;
+    promptEvent.prompt();
+    const result = await promptEvent.userChoice.catch(() => null);
+    toast(result?.outcome === "accepted" ? "已建立捷徑" : "已取消建立捷徑");
+    return;
+  }
+
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(url);
+  }
+  openExternalLink(url);
+  toast("已開外部瀏覽器；請用瀏覽器選單加到主畫面");
+}
+
+async function copyShortcutUrl() {
+  const url = tripShortcutUrl();
+  if (els.shortcutUrlInput) els.shortcutUrlInput.value = url;
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(url);
+    toast("捷徑連結已複製");
+    return;
+  }
+  window.prompt("這本日記的捷徑連結", url);
 }
 
 async function inviteCurrentTrip() {

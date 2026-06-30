@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>薛家好好玩</title>
+    <meta name="theme-color" content="#54c58f" />
+    <link id="dynamicManifest" rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/styles.css" />
     <script defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     <script type="module" src="/app.js"></script>
@@ -134,7 +136,8 @@
               <button class="tab" type="button" data-tab="todos">待辦</button>
               <button class="tab" type="button" data-tab="wishes">許願</button>
               <button class="tab tab-members" type="button" data-tab="members"><span>同行</span><span>成員</span></button>
-              <button class="tab settlement-tab-action" type="button" data-toggle-settlement>最後<br />結帳</button>
+              <button class="tab shortcut-tab-action" type="button" data-trip-shortcut>捷徑</button>
+              <button class="tab settlement-tab-action" type="button" data-toggle-settlement>結算</button>
             </div>
 
             <section id="itineraryPanel" class="panel" data-panel="itinerary"></section>
@@ -151,6 +154,28 @@
     <div id="photoViewer" class="photo-viewer" hidden>
       <button class="photo-viewer-close" type="button" data-photo-close aria-label="關閉照片">×</button>
       <img id="photoViewerImage" alt="完整行程照片" />
+    </div>
+    <div id="shortcutModal" class="shortcut-modal" hidden>
+      <div class="shortcut-modal-card" role="dialog" aria-modal="true" aria-labelledby="shortcutModalTitle">
+        <button class="shortcut-modal-close" type="button" data-shortcut-close aria-label="關閉">×</button>
+        <p class="eyebrow">單本日記捷徑</p>
+        <h3 id="shortcutModalTitle">建立手機桌面捷徑</h3>
+        <p class="muted">這個捷徑會直接打開目前這本日記，不用再從「我的日記」慢慢點進來。</p>
+        <div class="shortcut-actions">
+          <button class="primary-button" type="button" data-shortcut-install>建立捷徑</button>
+          <button class="plain-button" type="button" data-shortcut-external>外部瀏覽器開啟</button>
+          <button class="plain-button" type="button" data-shortcut-copy>複製連結</button>
+        </div>
+        <div class="shortcut-help">
+          <strong>如果手機沒有直接跳出建立捷徑：</strong>
+          <ol>
+            <li>先按「外部瀏覽器開啟」。</li>
+            <li>Android Chrome：按右上角 ⋮ →「加到主畫面」。</li>
+            <li>iPhone Safari：按分享 →「加入主畫面」。</li>
+          </ol>
+        </div>
+        <input id="shortcutUrlInput" class="shortcut-url" type="text" readonly />
+      </div>
     </div>
     <div id="toast" class="toast" role="status" hidden></div>
   </body>
